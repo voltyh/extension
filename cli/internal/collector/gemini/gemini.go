@@ -10,6 +10,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/chromedp/cdproto/runtime"
 	"github.com/chromedp/chromedp"
 	"github.com/voltyh/extension/cli/internal/collector"
 	"github.com/voltyh/extension/cli/internal/model"
@@ -80,7 +81,13 @@ func (c *Collector) Collect(ctx context.Context, opts collector.Options) (*model
 	}
 
 	var payload string
-	actions = append(actions, chromedp.Evaluate(extractConversationScript(opts.IncludeMetadata), &payload))
+	actions = append(actions, chromedp.Evaluate(
+		extractConversationScript(opts.IncludeMetadata),
+		&payload,
+		func(p *runtime.EvaluateParams) *runtime.EvaluateParams {
+			return p.WithAwaitPromise(true)
+		},
+	))
 	if err := chromedp.Run(browserCtx, actions...); err != nil {
 		return nil, fmt.Errorf("extract from browser: %w", err)
 	}
