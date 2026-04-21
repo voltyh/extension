@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -203,12 +204,12 @@ func normalizeConversation(conv *model.Conversation) {
 	for i := range conv.Messages {
 		msg := &conv.Messages[i]
 		if msg.ID == "" {
-			msg.ID = "msg-" + hashString(msg.Role+"\x00"+msg.Text+"\x00"+conv.ID+"\x00"+fmt.Sprintf("%d", i))
+			msg.ID = "msg-" + hashParts(msg.Role, msg.Text, conv.ID, strconv.Itoa(i))
 		}
 		for j := range msg.Media {
 			m := &msg.Media[j]
 			if m.ID == "" {
-				m.ID = "media-" + hashString(msg.ID+"\x00"+m.URL+"\x00"+m.Filename+"\x00"+fmt.Sprintf("%d", j))
+				m.ID = "media-" + hashParts(msg.ID, m.URL, m.Filename, strconv.Itoa(j))
 			}
 		}
 	}
@@ -417,7 +418,7 @@ func classifyMediaError(err error) string {
 }
 
 func sourceKey(ref model.MediaRef) string {
-	return hashString(ref.URL + "\x00" + ref.DataURI + "\x00" + ref.SourcePath)
+	return hashParts(ref.URL, ref.DataURI, ref.SourcePath)
 }
 
 func fetchMedia(ctx context.Context, ref model.MediaRef, cfg Config) ([]byte, string, error) {
@@ -537,6 +538,17 @@ func marshalStableJSON(v any) ([]byte, error) {
 func hashString(in string) string {
 	sum := sha256.Sum256([]byte(in))
 	return hex.EncodeToString(sum[:])[:12]
+}
+
+func hashParts(parts ...string) string {
+	var b strings.Builder
+	for _, p := range parts {
+		b.WriteString(strconv.Itoa(len(p)))
+		b.WriteByte(':')
+		b.WriteString(p)
+		b.WriteByte('|')
+	}
+	return hashString(b.String())
 }
 
 func countMedia(conv *model.Conversation) int {

@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"context"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -53,7 +54,7 @@ func TestRunProducesZipContract(t *testing.T) {
 		if _, ok := required[f.Name]; ok {
 			required[f.Name] = true
 		}
-		if len(f.Name) > len("media/") && f.Name[:len("media/")] == "media/" {
+		if strings.HasPrefix(f.Name, "media/") {
 			mediaCount++
 		}
 	}
