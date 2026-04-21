@@ -1,25 +1,49 @@
 // --- DRAG UTILITY ---
+// Returns a function that reports whether the last mousedown ended as a drag.
 function makeDraggable(element, handle) {
     let isDragging = false;
+    let didDrag = false;
     let startX = 0;
     let startY = 0;
     let initialLeft = 0;
     let initialTop = 0;
 
     handle.style.cursor = 'move';
-    handle.title = 'Drag to move';
 
     const onMouseMove = (e) => {
         if (!isDragging) return;
+        // Only count as a real drag after the cursor moves more than 5 px.
+        if (!didDrag && (Math.abs(e.clientX - startX) > 5 || Math.abs(e.clientY - startY) > 5)) {
+            didDrag = true;
+        }
         e.preventDefault();
-        element.style.left = `${initialLeft + e.clientX - startX}px`;
-        element.style.top = `${initialTop + e.clientY - startY}px`;
+        // Clamp so the element can never be dragged fully off-screen.
+        // Keep at least 40 px of the element visible on each edge.
+        const MARGIN = 40;
+        const rect = element.getBoundingClientRect();
+        const vw = window.innerWidth;
+        const vh = window.innerHeight;
+        const rawLeft = initialLeft + e.clientX - startX;
+        const rawTop  = initialTop  + e.clientY - startY;
+        const clampedLeft = Math.min(Math.max(rawLeft, MARGIN - rect.width),  vw - MARGIN);
+        const clampedTop  = Math.min(Math.max(rawTop,  MARGIN - rect.height), vh - MARGIN);
+        element.style.left = `${clampedLeft}px`;
+        element.style.top  = `${clampedTop}px`;
         element.style.right = 'auto';
         element.style.bottom = 'auto';
     };
 
     const onMouseUp = () => {
         isDragging = false;
+        if (didDrag) {
+            // Stamp a flag on the element so click handlers fired in the same
+            // event loop can see that this was a drag, not a tap.
+            element.dataset.justDragged = '1';
+            requestAnimationFrame(() => requestAnimationFrame(() => {
+                delete element.dataset.justDragged;
+            }));
+        }
+        didDrag = false;
         document.removeEventListener('mousemove', onMouseMove);
         document.removeEventListener('mouseup', onMouseUp);
     };
@@ -29,6 +53,7 @@ function makeDraggable(element, handle) {
         if (targetTag === 'button' || targetTag === 'input') return;
 
         isDragging = true;
+        didDrag = false;
         startX = e.clientX;
         startY = e.clientY;
 
@@ -47,7 +72,7 @@ document.querySelectorAll('button[data-harvester-launcher="true"]').forEach((n) 
 // Automatically inject a launch button
 const launcher = document.createElement('button');
 launcher.dataset.harvesterLauncher = 'true';
-launcher.innerHTML = 'Launch Exporter v45<br><small style="font-size:9px; font-weight:normal;">(Drag to move)</small>';
+launcher.textContent = 'Launch Exporter v45';
 Object.assign(launcher.style, {
     position: 'fixed',
     bottom: '20px',
@@ -65,8 +90,9 @@ Object.assign(launcher.style, {
 document.body.appendChild(launcher);
 makeDraggable(launcher, launcher);
 
-launcher.addEventListener('click', (e) => {
-    if (e.detail === 0) return;
+launcher.addEventListener('click', () => {
+    // Suppress click that was the mouseup ending a drag.
+    if (launcher.dataset.justDragged) return;
     launcher.style.display = 'none';
     launchHarvesterV45();
 });
@@ -311,16 +337,18 @@ function launchHarvesterV45() {
     });
 
     const wizHeader = document.createElement('div');
-    wizHeader.textContent = 'Drag to Move';
+    // Empty drag-handle bar at top of wizard — no label needed.
+    wizHeader.innerHTML = '&#8942;&nbsp;&#8942;&nbsp;&#8942;';
     Object.assign(wizHeader.style, {
-        background: '#333',
+        background: '#2a2a2a',
         margin: '-20px -20px 15px -20px',
-        padding: '8px',
+        padding: '6px',
         borderRadius: '10px 10px 0 0',
         cursor: 'move',
-        fontSize: '11px',
-        color: '#aaa',
-        fontWeight: 'bold'
+        fontSize: '14px',
+        color: '#555',
+        textAlign: 'center',
+        letterSpacing: '4px'
     });
     wizardBox.appendChild(wizHeader);
 
@@ -978,8 +1006,8 @@ function launchHarvesterV45() {
                                     if (iframe) {
                                         try {
                                             iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
-                                            const testAccess = iframeDoc.body.innerText;
-                                            if (testAccess === undefined) accessible = true;
+                                            // Reading innerText throws if cross-origin — that's our CORS gate.
+                                            void iframeDoc.body.innerText;
                                         } catch (e) {
                                             accessible = false;
                                         }
@@ -1103,6 +1131,8 @@ function launchHarvesterV45() {
         if (stopRequested) {
             if (writable) {
                 try {
+                    // Write minimal closing tags so the output file is valid HTML.
+                    await writable.write('<p style="color:red; text-align:center; padding:20px;">[ Export was terminated early ]</p></body></html>');
                     await writable.close();
                 } catch (e) {
                     // no-op
