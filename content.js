@@ -748,8 +748,7 @@ function launchHarvesterV45() {
 
             if (currentHeight > previousHeight) {
                 topCount = 0;
-                log('Loaded chunk. Waiting 700ms...');
-                await new Promise((r) => setTimeout(r, 700));
+                log('Loaded chunk. Continuing...');
             } else {
                 topCount += 1;
                 log(`Waiting for new data... (${topCount}/5)`);
