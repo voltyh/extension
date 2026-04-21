@@ -116,17 +116,42 @@ function launchHarvesterV45() {
     // Anti-throttle and wake lock protections.
     let wakeLock = null;
     let antiThrottleAudio = null;
+    let antiThrottleContext = null;
+    let antiThrottleOscillator = null;
+    let antiThrottleGain = null;
 
     async function engageAntiThrottling() {
         try {
-            antiThrottleAudio = document.createElement('audio');
-            antiThrottleAudio.src = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=';
-            antiThrottleAudio.loop = true;
-            antiThrottleAudio.volume = 0.01;
-            await antiThrottleAudio.play();
+            if (!antiThrottleContext || antiThrottleContext.state === 'closed') {
+                const AudioCtx = window.AudioContext || window.webkitAudioContext;
+                if (!AudioCtx) throw new Error('WebAudio unavailable');
+                antiThrottleContext = new AudioCtx();
+                antiThrottleOscillator = antiThrottleContext.createOscillator();
+                antiThrottleGain = antiThrottleContext.createGain();
+                antiThrottleOscillator.type = 'sine';
+                antiThrottleOscillator.frequency.value = 19000;
+                antiThrottleGain.gain.value = 0.00001;
+                antiThrottleOscillator.connect(antiThrottleGain);
+                antiThrottleGain.connect(antiThrottleContext.destination);
+                antiThrottleOscillator.start();
+            }
+            if (antiThrottleContext.state !== 'running') {
+                await antiThrottleContext.resume();
+            }
             log('Anti-Throttling Media Engine Active.');
         } catch (e) {
-            log('Anti-Throttle audio could not start.');
+            try {
+                antiThrottleAudio = document.createElement('audio');
+                antiThrottleAudio.src = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=';
+                antiThrottleAudio.loop = true;
+                antiThrottleAudio.volume = 0.01;
+                antiThrottleAudio.muted = true;
+                antiThrottleAudio.setAttribute('playsinline', 'true');
+                await antiThrottleAudio.play();
+                log('Anti-Throttling Media Engine Active (fallback).');
+            } catch (fallbackError) {
+                log('Anti-Throttle audio could not start.');
+            }
         }
 
         try {
@@ -161,10 +186,34 @@ function launchHarvesterV45() {
             log('Wake Lock release failed.');
         }
 
-        if (antiThrottleAudio) {
-            antiThrottleAudio.pause();
-            antiThrottleAudio.remove();
-            antiThrottleAudio = null;
+        const hadAntiThrottleEngine = !!(antiThrottleAudio || antiThrottleOscillator || antiThrottleContext);
+        try {
+            if (antiThrottleAudio) {
+                antiThrottleAudio.pause();
+                antiThrottleAudio.remove();
+                antiThrottleAudio = null;
+            }
+
+            if (antiThrottleOscillator) {
+                antiThrottleOscillator.stop();
+                antiThrottleOscillator.disconnect();
+                antiThrottleOscillator = null;
+            }
+
+            if (antiThrottleGain) {
+                antiThrottleGain.disconnect();
+                antiThrottleGain = null;
+            }
+
+            if (antiThrottleContext) {
+                await antiThrottleContext.close();
+                antiThrottleContext = null;
+            }
+        } catch (e) {
+            log('Anti-Throttle release cleanup encountered an issue.');
+        }
+
+        if (hadAntiThrottleEngine) {
             log('Anti-Throttling Disabled.');
         }
     }
