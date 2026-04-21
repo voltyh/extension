@@ -58,4 +58,3 @@ func Render(conv *model.Conversation) ([]byte, error) {
 	}
 	return buf.Bytes(), nil
 }
-

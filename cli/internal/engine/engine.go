@@ -39,6 +39,7 @@ type Config struct {
 
 type mediaTask struct {
 	msgIdx   int
+	msgID    string
 	mediaIdx int
 	ref      model.MediaRef
 }
@@ -258,6 +259,7 @@ func collectMediaTasks(conv *model.Conversation) []mediaTask {
 		for j := range msg.Media {
 			tasks = append(tasks, mediaTask{
 				msgIdx:   i,
+				msgID:    msg.ID,
 				mediaIdx: j,
 				ref:      msg.Media[j],
 			})
@@ -304,7 +306,7 @@ func downloadAllMedia(ctx context.Context, tasks []mediaTask, workDir string, cf
 					failure: &model.Failure{
 						Code:      classifyMediaError(err),
 						Scope:     "media",
-						MessageID: task.ref.ID,
+						MessageID: task.msgID,
 						MediaID:   task.ref.ID,
 						Message:   err.Error(),
 					},
@@ -410,16 +412,19 @@ func fetchMedia(ctx context.Context, ref model.MediaRef, cfg Config) ([]byte, st
 		return nil, "", errors.New("missing media source")
 	}
 
-	reqCtx, cancel := context.WithTimeout(ctx, cfg.DownloadTimeout)
-	defer cancel()
 	var lastErr error
+	var lastData []byte
+	var lastMime string
 	for i := 0; i < cfg.DownloadRetries; i++ {
+		reqCtx, cancel := context.WithTimeout(ctx, cfg.DownloadTimeout)
 		req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, ref.URL, nil)
 		if err != nil {
+			cancel()
 			return nil, "", err
 		}
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
+			cancel()
 			lastErr = err
 			continue
 		}
@@ -439,6 +444,7 @@ func fetchMedia(ctx context.Context, ref model.MediaRef, cfg Config) ([]byte, st
 			lastMime = ct
 			lastData = b
 		}()
+		cancel()
 		if lastErr == nil {
 			return lastData, lastMime, nil
 		}
@@ -448,11 +454,6 @@ func fetchMedia(ctx context.Context, ref model.MediaRef, cfg Config) ([]byte, st
 	}
 	return nil, "", lastErr
 }
-
-var (
-	lastData []byte
-	lastMime string
-)
 
 func decodeDataURI(in string) ([]byte, string, error) {
 	if !strings.HasPrefix(in, "data:") {
@@ -525,4 +526,3 @@ func countMedia(conv *model.Conversation) int {
 	}
 	return n
 }
-

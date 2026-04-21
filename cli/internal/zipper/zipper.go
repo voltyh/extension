@@ -70,4 +70,3 @@ func CreateFromDir(srcDir, outZip string) error {
 	}
 	return nil
 }
-

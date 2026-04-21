@@ -27,4 +27,3 @@ func (c *Collector) Collect(_ context.Context, _ collector.Options) (*model.Conv
 	}
 	return &conv, nil
 }
-

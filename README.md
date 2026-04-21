@@ -82,6 +82,47 @@ Gemini_Exporter_Extension/
 
 ---
 
+## CLI Export Engine (New)
+
+This repository now includes a CLI-first export engine scaffold at:
+
+`/home/runner/work/extension/extension/cli`
+
+Current status:
+- Stable ZIP artifact contract is implemented:
+  - `conversation.json`
+  - `media/*`
+  - `index.html`
+  - `manifest.json`
+  - `logs/export.log`
+- Collector interface is implemented.
+- `mock` collector is implemented for fixture-driven testing.
+- `gemini` collector boundary exists as a v1 placeholder.
+
+Run with mock fixture:
+
+```bash
+cd /home/runner/work/extension/extension/cli
+go run ./cmd/gemini-exporter -collector mock -fixture ./testdata/mock_conversation.json -output ./gemini-export.zip
+```
+
+Run with Gemini collector boundary (currently placeholder):
+
+```bash
+cd /home/runner/work/extension/extension/cli
+go run ./cmd/gemini-exporter -collector gemini -output ./gemini-export.zip
+```
+
+Cross-platform build example:
+
+```bash
+cd /home/runner/work/extension/extension/cli
+GOOS=linux GOARCH=amd64 go build -o ./bin/gemini-exporter-linux ./cmd/gemini-exporter
+GOOS=windows GOARCH=amd64 go build -o ./bin/gemini-exporter-windows.exe ./cmd/gemini-exporter
+```
+
+---
+
 ## Permissions
 
 | Permission | Reason |

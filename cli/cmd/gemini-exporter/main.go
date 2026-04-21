@@ -46,13 +46,13 @@ func main() {
 	}
 
 	cfg := engine.Config{
-		Collector:            c,
-		OutputZip:            *outputZip,
-		WorkDir:              *workdir,
-		Resume:               *resume,
-		DownloadTimeout:      *timeout,
-		DownloadRetries:      *retries,
-		DownloadConcurrency:  *concurrency,
+		Collector:               c,
+		OutputZip:               *outputZip,
+		WorkDir:                 *workdir,
+		Resume:                  *resume,
+		DownloadTimeout:         *timeout,
+		DownloadRetries:         *retries,
+		DownloadConcurrency:     *concurrency,
 		CollectorConversationID: *convID,
 	}
 
@@ -71,4 +71,3 @@ func exitf(format string, args ...any) {
 	_, _ = fmt.Fprintf(os.Stderr, format+"\n", args...)
 	os.Exit(1)
 }
-

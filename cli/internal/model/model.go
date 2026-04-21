@@ -49,4 +49,3 @@ type Manifest struct {
 
 	Failures []Failure `json:"failures"`
 }
-

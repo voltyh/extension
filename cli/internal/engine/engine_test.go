@@ -5,6 +5,7 @@ import (
 	"context"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/voltyh/extension/cli/internal/collector/mock"
 )
@@ -20,12 +21,12 @@ func TestRunProducesZipContract(t *testing.T) {
 		Collector: &mock.Collector{
 			FixturePath: fixture,
 		},
-		OutputZip:            outZip,
-		WorkDir:              filepath.Join(tmp, "workspace"),
-		Resume:               false,
-		DownloadTimeout:      2,
-		DownloadRetries:      1,
-		DownloadConcurrency:  2,
+		OutputZip:               outZip,
+		WorkDir:                 filepath.Join(tmp, "workspace"),
+		Resume:                  false,
+		DownloadTimeout:         2 * time.Second,
+		DownloadRetries:         1,
+		DownloadConcurrency:     2,
 		CollectorConversationID: "",
 	})
 	if err != nil {
@@ -65,4 +66,3 @@ func TestRunProducesZipContract(t *testing.T) {
 		t.Fatalf("expected deduped media count 1, got %d", mediaCount)
 	}
 }
-
