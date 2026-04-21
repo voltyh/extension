@@ -35,16 +35,16 @@ func TestSelectGeminiTarget(t *testing.T) {
 	t.Parallel()
 
 	targets := []devToolsTarget{
-		{ID: "a", Type: "page", URL: "https://example.com"},
-		{ID: "b", Type: "page", URL: "https://gemini.google.com/app/conv-123"},
-		{ID: "c", Type: "page", URL: "https://gemini.google.com/app/conv-999"},
+		{Type: "page", URL: "https://example.com"},
+		{Type: "page", URL: "https://gemini.google.com/app/conv-123"},
+		{Type: "page", URL: "https://gemini.google.com/app/conv-999"},
 	}
 
 	selected, err := selectGeminiTarget(targets, "conv-999")
 	if err != nil {
 		t.Fatalf("selectGeminiTarget returned error: %v", err)
 	}
-	if selected.ID != "c" {
-		t.Fatalf("expected target c, got %s", selected.ID)
+	if selected.URL != "https://gemini.google.com/app/conv-999" {
+		t.Fatalf("unexpected target selected: %s", selected.URL)
 	}
 }

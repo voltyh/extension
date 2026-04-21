@@ -294,13 +294,16 @@ func downloadAllMedia(ctx context.Context, tasks []mediaTask, workDir string, cf
 
 	sumToPath := &sync.Map{}
 	keyToPath := &sync.Map{}
+	var dedupeMu sync.Mutex
 
 	worker := func() {
 		defer wg.Done()
 		for task := range in {
 			ref := task.ref
 			key := sourceKey(ref)
+			dedupeMu.Lock()
 			if v, ok := keyToPath.Load(key); ok {
+				dedupeMu.Unlock()
 				ex := v.(mediaResult)
 				out <- mediaResult{
 					task:       task,
@@ -310,6 +313,7 @@ func downloadAllMedia(ctx context.Context, tasks []mediaTask, workDir string, cf
 				}
 				continue
 			}
+			dedupeMu.Unlock()
 			b, mimeType, err := fetchMedia(ctx, ref, cfg)
 			if err != nil {
 				out <- mediaResult{
@@ -326,10 +330,23 @@ func downloadAllMedia(ctx context.Context, tasks []mediaTask, workDir string, cf
 			}
 			sum := sha256.Sum256(b)
 			checksum := hex.EncodeToString(sum[:])
+			dedupeMu.Lock()
+			if v, ok := keyToPath.Load(key); ok {
+				dedupeMu.Unlock()
+				ex := v.(mediaResult)
+				out <- mediaResult{
+					task:       task,
+					exportPath: ex.exportPath,
+					checksum:   ex.checksum,
+					mimeType:   ex.mimeType,
+				}
+				continue
+			}
 			if v, ok := sumToPath.Load(checksum); ok {
 				rel := v.(string)
 				res := mediaResult{task: task, exportPath: rel, checksum: checksum, mimeType: mimeType}
 				keyToPath.Store(key, res)
+				dedupeMu.Unlock()
 				out <- res
 				continue
 			}
@@ -338,6 +355,7 @@ func downloadAllMedia(ctx context.Context, tasks []mediaTask, workDir string, cf
 			absPath := filepath.Join(workDir, "media", filename)
 			if _, err := os.Stat(absPath); err != nil {
 				if !os.IsNotExist(err) {
+					dedupeMu.Unlock()
 					out <- mediaResult{
 						task: task,
 						failure: &model.Failure{
@@ -351,6 +369,7 @@ func downloadAllMedia(ctx context.Context, tasks []mediaTask, workDir string, cf
 					continue
 				}
 				if err := os.WriteFile(absPath, b, 0o644); err != nil {
+					dedupeMu.Unlock()
 					out <- mediaResult{
 						task: task,
 						failure: &model.Failure{
@@ -368,6 +387,7 @@ func downloadAllMedia(ctx context.Context, tasks []mediaTask, workDir string, cf
 			res := mediaResult{task: task, exportPath: relPath, checksum: checksum, mimeType: mimeType}
 			sumToPath.Store(checksum, relPath)
 			keyToPath.Store(key, res)
+			dedupeMu.Unlock()
 			out <- res
 		}
 	}

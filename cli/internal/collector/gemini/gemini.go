@@ -10,7 +10,6 @@ import (
 	"os"
 	"strings"
 
-	"github.com/chromedp/cdproto/target"
 	"github.com/chromedp/chromedp"
 	"github.com/voltyh/extension/cli/internal/collector"
 	"github.com/voltyh/extension/cli/internal/model"
@@ -30,7 +29,6 @@ type devToolsVersion struct {
 }
 
 type devToolsTarget struct {
-	ID   string `json:"id"`
 	Type string `json:"type"`
 	URL  string `json:"url"`
 }
@@ -69,15 +67,16 @@ func (c *Collector) Collect(ctx context.Context, opts collector.Options) (*model
 	allocCtx, cancelAllocator := chromedp.NewRemoteAllocator(ctx, wsURL)
 	defer cancelAllocator()
 
-	browserCtx, cancelBrowser := chromedp.NewContext(allocCtx, chromedp.WithTargetID(target.ID(selected.ID)))
+	browserCtx, cancelBrowser := chromedp.NewContext(allocCtx)
 	defer cancelBrowser()
 
-	actions := []chromedp.Action{chromedp.WaitReady("body", chromedp.ByQuery)}
+	targetURL := selected.URL
 	if opts.ConversationID != "" {
-		actions = append(actions,
-			chromedp.Navigate(defaultGeminiHome+"/"+opts.ConversationID),
-			chromedp.WaitReady("body", chromedp.ByQuery),
-		)
+		targetURL = defaultGeminiHome + "/" + opts.ConversationID
+	}
+	actions := []chromedp.Action{
+		chromedp.Navigate(targetURL),
+		chromedp.WaitReady("body", chromedp.ByQuery),
 	}
 
 	var payload string
