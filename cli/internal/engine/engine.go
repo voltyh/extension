@@ -341,10 +341,11 @@ func downloadAllMedia(ctx context.Context, tasks []mediaTask, workDir string, cf
 					out <- mediaResult{
 						task: task,
 						failure: &model.Failure{
-							Code:    "write_failed",
-							Scope:   "media",
-							MediaID: ref.ID,
-							Message: err.Error(),
+							Code:      "write_failed",
+							Scope:     "media",
+							MessageID: task.msgID,
+							MediaID:   ref.ID,
+							Message:   err.Error(),
 						},
 					}
 					continue
@@ -353,10 +354,11 @@ func downloadAllMedia(ctx context.Context, tasks []mediaTask, workDir string, cf
 					out <- mediaResult{
 						task: task,
 						failure: &model.Failure{
-							Code:    "write_failed",
-							Scope:   "media",
-							MediaID: ref.ID,
-							Message: err.Error(),
+							Code:      "write_failed",
+							Scope:     "media",
+							MessageID: task.msgID,
+							MediaID:   ref.ID,
+							Message:   err.Error(),
 						},
 					}
 					continue
