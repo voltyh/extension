@@ -1,0 +1,33 @@
+{
+  "id": "conv-fixture-1",
+  "title": "Fixture Conversation",
+  "messages": [
+    {
+      "id": "m1",
+      "role": "user",
+      "text": "show me the file",
+      "media": [
+        {
+          "id": "media-1",
+          "filename": "hello.txt",
+          "mimeType": "text/plain",
+          "dataUri": "data:text/plain;base64,SGVsbG8sIEdlbWluaSE="
+        }
+      ]
+    },
+    {
+      "id": "m2",
+      "role": "model",
+      "text": "here it is",
+      "media": [
+        {
+          "id": "media-1-duplicate",
+          "filename": "hello-copy.txt",
+          "mimeType": "text/plain",
+          "dataUri": "data:text/plain;base64,SGVsbG8sIEdlbWluaSE="
+        }
+      ]
+    }
+  ]
+}
+
