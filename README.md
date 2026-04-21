@@ -2,6 +2,8 @@
 
 A Chrome extension that exports your entire Gemini conversation history — including text, images, attachments, and AI-generated media — into a single, fully self-contained HTML archive.
 
+> This repo is still a Chrome extension first. The CLI under `cli/` is an **experimental scaffold** and does not replace the extension workflow yet.
+
 ---
 
 ## Features
@@ -16,7 +18,7 @@ A Chrome extension that exports your entire Gemini conversation history — incl
 - **Terminate**: Cleanly stops the export, writes closing HTML so the partial file remains valid, and releases all system resources.
 - **Anti-throttle engine**: Plays a silent audio loop and requests the Screen Wake Lock API to prevent Chrome from throttling or sleeping during long exports.
 - **Media appendix**: A jump-to-message index is written at the end of every export, listing every captured or missing file.
-- **Diagnostic log export**: A `.txt` log of every operation is saved automatically when the export completes.
+- **Diagnostic log export**: A timestamped `.txt` log is auto-downloaded on complete, terminate, or save-dialog failure/cancel, and the filename is shown in the UI log.
 - **Memory-safe streaming**: The HTML archive is streamed to disk block-by-block via the File System Access API — large conversations never balloon RAM.
 
 ---
@@ -82,11 +84,11 @@ Gemini_Exporter_Extension/
 
 ---
 
-## CLI Export Engine (New)
+## CLI Export Engine (Experimental Scaffold)
 
 This repository now includes a CLI-first export engine scaffold at `cli/`.
 
-Current status:
+Current status (not yet a full replacement for the extension):
 - Stable ZIP artifact contract is implemented:
   - `conversation.json`
   - `media/*`
