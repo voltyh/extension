@@ -451,14 +451,11 @@ function launchHarvesterV45() {
         return window;
     }
 
+    // Lookup table hoisted outside the regex callback — avoids creating a new
+    // object literal on every matched character.
+    const HTML_ESCAPE_MAP = { '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' };
     function escapeHTML(str) {
-        return str.replace(/[&<>'"]/g, (tag) => ({
-            '&': '&amp;',
-            '<': '&lt;',
-            '>': '&gt;',
-            "'": '&#39;',
-            '"': '&quot;'
-        }[tag] || tag));
+        return str.replace(/[&<>'"]/g, (tag) => HTML_ESCAPE_MAP[tag] || tag);
     }
 
     // Reject javascript:, data:, and other non-http(s) URIs before placing
@@ -529,14 +526,34 @@ function launchHarvesterV45() {
         return toBase64(src);
     }
 
-    async function waitForEl(selector, timeout = 4000) {
-        const start = Date.now();
-        while (Date.now() - start < timeout && !stopRequested) {
-            const el = document.querySelector(selector);
-            if (el) return el;
-            await new Promise((r) => setTimeout(r, 150));
-        }
-        return null;
+    // MutationObserver-based wait: resolves the instant the element appears
+    // instead of polling every 150ms (saves up to 150ms per call on average).
+    function waitForEl(selector, timeout = 4000) {
+        return new Promise((resolve) => {
+            if (stopRequested) { resolve(null); return; }
+            const existing = document.querySelector(selector);
+            if (existing) { resolve(existing); return; }
+            let settled = false;
+            const settle = (el) => {
+                if (settled) return;
+                settled = true;
+                clearTimeout(timer);
+                observer.disconnect();
+                resolve(el);
+            };
+            const timer = setTimeout(() => settle(null), timeout);
+            const observer = new MutationObserver(() => {
+                if (stopRequested) { settle(null); return; }
+                const el = document.querySelector(selector);
+                if (el) settle(el);
+            });
+            observer.observe(document.body, {
+                childList: true,
+                subtree: true,
+                attributes: true,
+                attributeFilter: ['open', 'class']
+            });
+        });
     }
 
     // --- 5-BUTTON UNIVERSAL WIZARD LOGIC (Non-blocking) ---
@@ -694,7 +711,7 @@ function launchHarvesterV45() {
             });
 
             document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-            await new Promise((r) => setTimeout(r, 250));
+            await new Promise((r) => setTimeout(r, 100));
             waitClose += 1;
         }
     }
@@ -731,8 +748,8 @@ function launchHarvesterV45() {
 
             if (currentHeight > previousHeight) {
                 topCount = 0;
-                log('Loaded chunk. Waiting 1s...');
-                await new Promise((r) => setTimeout(r, 1000));
+                log('Loaded chunk. Waiting 700ms...');
+                await new Promise((r) => setTimeout(r, 700));
             } else {
                 topCount += 1;
                 log(`Waiting for new data... (${topCount}/5)`);
@@ -821,6 +838,10 @@ function launchHarvesterV45() {
         let stuckCounter = 0;
         const scroller = getScroller();
         const filePreviewSelector = 'user-query-file-preview, file-preview, mat-chip, .attachment-chip, [data-test-id="file-preview"], [data-test-id="uploaded-file"]';
+        // Pre-joined selector string — avoids array alloc + join on every message block.
+        const CLUTTER_SEL = 'img[src*="avatar"], .model-s-icon, .avatar, .action-row, .response-footer-container, .feedback-container, .response-container-header, .avatar-gutter, tts-control, .response-tts-container, button';
+        // Cache the checkbox element — avoid getElementById inside the hot attachment loop.
+        const skipAllAttach = document.getElementById('skip-attachments');
 
         while (!stopRequested && stuckCounter < 12) {
             while (isPaused && !stopRequested) {
@@ -832,7 +853,7 @@ function launchHarvesterV45() {
             if (stopRequested) break;
 
             const blocks = Array.from(document.querySelectorAll('user-query, model-response, [data-message-author]'))
-                .filter((node) => !node.parentElement.closest('user-query, model-response, [data-message-author]'));
+                .filter((node) => !node.dataset.v45Captured && !node.parentElement.closest('user-query, model-response, [data-message-author]'));
             let newMessagesThisLoop = 0;
 
             for (const el of blocks) {
@@ -844,7 +865,7 @@ function launchHarvesterV45() {
 
                 el.scrollIntoView({ behavior: 'smooth', block: 'center' });
                 el.style.outline = '4px solid #9c27b0';
-                await new Promise((r) => setTimeout(r, 600));
+                await new Promise((r) => setTimeout(r, 300));
 
                 const contentAreas = el.querySelectorAll('.message-content, .prompt-text, .response-text');
                 contentAreas.forEach((area) => {
@@ -867,7 +888,7 @@ function launchHarvesterV45() {
                         }
                     });
                 });
-                await new Promise((r) => setTimeout(r, 300));
+                await new Promise((r) => setTimeout(r, 150));
 
                 const targetContent = el.querySelector('.message-content') || el;
                 const rawText = targetContent.textContent.trim();
@@ -875,10 +896,11 @@ function launchHarvesterV45() {
                 const allFilePreviews = Array.from(targetContent.querySelectorAll(filePreviewSelector));
                 const filePreviews = allFilePreviews.filter((p) => !allFilePreviews.some((parent) => parent !== p && parent.contains(p)));
 
-                const getValidImages = () => Array.from(targetContent.querySelectorAll('img:not(.avatar):not([src*="avatar"])'))
+                // Compute once per block — cached array of live DOM refs, no re-querying inside the loop.
+                const validImages = Array.from(targetContent.querySelectorAll('img:not(.avatar):not([src*="avatar"])'))
                     .filter((img) => !img.closest(filePreviewSelector) && img.naturalWidth > 20 && !img.src.includes('icon'));
 
-                if (rawText.length < 1 && getValidImages().length === 0 && filePreviews.length === 0) continue;
+                if (rawText.length < 1 && validImages.length === 0 && filePreviews.length === 0) continue;
 
                 const fingerprint = `${rawText.substring(0, 50).replace(/\s/g, '')}_${targetContent.innerHTML.length}`;
                 if (seenFingerprints.has(fingerprint)) {
@@ -896,15 +918,15 @@ function launchHarvesterV45() {
 
                 log(`Processing Block ${messageCounter}`);
 
-                const imgCount = getValidImages().length;
+                const imgCount = validImages.length;
                 for (let i = 0; i < imgCount; i += 1) {
                     if (stopRequested) break;
                     while (isPaused && !stopRequested) await new Promise((r) => setTimeout(r, 200));
 
                     log(`Attempting Pure Image Fetch ${i + 1}/${imgCount}...`);
                     try {
-                        const liveImg = getValidImages()[i];
-                        if (!liveImg) {
+                        const liveImg = validImages[i];
+                        if (!liveImg || !document.contains(liveImg)) {
                             log('Image element lost from DOM. Skipping.');
                             continue;
                         }
@@ -913,7 +935,10 @@ function launchHarvesterV45() {
                         clickTarget.click();
 
                         const modalImg = await waitForEl('dialog img:not(.avatar), .fullscreen-preview img:not(.avatar)', 4000);
-                        await new Promise((r) => setTimeout(r, 500));
+                        // img.decode() resolves the instant the image is painted — no fixed 500ms sleep.
+                        if (modalImg) {
+                            try { await Promise.race([modalImg.decode(), new Promise((r) => setTimeout(r, 600))]); } catch (e) { /* no-op */ }
+                        }
 
                         let b64 = await getBase64Image(modalImg || liveImg);
                         if (b64) {
@@ -946,7 +971,6 @@ function launchHarvesterV45() {
                     const safePreviewHtml = preview.outerHTML.replace(/<svg.*?<\/svg>/g, '');
 
                     log(`Evaluating Attachment: ${label}`);
-                    const skipAllAttach = document.getElementById('skip-attachments');
                     if (skipAllAttach && skipAllAttach.checked) {
                         missingFiles.set(label, { label, link: linkHref });
                         mediaFound.push(`SKIPPED: ${label}`);
@@ -983,7 +1007,9 @@ function launchHarvesterV45() {
                                 const clickTarget = preview.querySelector('button, a') || preview;
                                 clickTarget.click();
                                 const modalImg = await waitForEl('dialog img:not(.avatar), .fullscreen-preview img:not(.avatar)', 4000);
-                                await new Promise((r) => setTimeout(r, 500));
+                                if (modalImg) {
+                                    try { await Promise.race([modalImg.decode(), new Promise((r) => setTimeout(r, 600))]); } catch (e) { /* no-op */ }
+                                }
                                 let b64 = await getBase64Image(modalImg || preview.querySelector('img'));
                                 if (b64 && b64 !== '') {
                                     safeMediaInjectionHTML += `<div class="deep-fetch-container"><div class="deep-fetch-header">${label}</div><div class="deep-fetch-content"><img src="${b64}"/></div></div>`;
@@ -1085,7 +1111,7 @@ function launchHarvesterV45() {
                                         for (let s = 0; s < 25; s += 1) {
                                             const currentHeight = scrollTarget.scrollHeight;
                                             scrollTarget.scrollTop = currentHeight;
-                                            await new Promise((r) => setTimeout(r, 600));
+                                            await new Promise((r) => setTimeout(r, 300));
                                             if (scrollTarget.scrollHeight === currentHeight) {
                                                 sameHeightCount += 1;
                                                 if (sameHeightCount > 2) break;
@@ -1134,20 +1160,7 @@ function launchHarvesterV45() {
                     else imgEl.remove();
                 });
 
-                const clutterSelectors = [
-                    'img[src*="avatar"]',
-                    '.model-s-icon',
-                    '.avatar',
-                    '.action-row',
-                    '.response-footer-container',
-                    '.feedback-container',
-                    '.response-container-header',
-                    '.avatar-gutter',
-                    'tts-control',
-                    '.response-tts-container',
-                    'button'
-                ];
-                clone.querySelectorAll(clutterSelectors.join(', ')).forEach((j) => {
+                clone.querySelectorAll(CLUTTER_SEL).forEach((j) => {
                     const parent = j.closest('div');
                     if (parent && parent.textContent.trim() === '' && !parent.querySelector('img')) parent.remove();
                     else j.remove();
@@ -1189,7 +1202,7 @@ function launchHarvesterV45() {
 
             if (scroller !== window) scroller.scrollTop += 400;
             else window.scrollBy({ top: 400, behavior: 'smooth' });
-            await new Promise((r) => setTimeout(r, 600));
+            await new Promise((r) => setTimeout(r, 400));
         }
 
         if (stopRequested) {
