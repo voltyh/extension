@@ -25,6 +25,7 @@ func main() {
 		attachActive  = flag.Bool("attach-active-session", true, "attach to active logged-in browser session (gemini collector)")
 		includeMeta   = flag.Bool("include-metadata", true, "include model/system metadata when discoverable")
 		mediaMode     = flag.String("media-mode", "files", "media export mode: files (maps to media/*)")
+		debugURL      = flag.String("remote-debugging-url", "http://127.0.0.1:9222", "Chrome/Edge remote debugging endpoint for collector=gemini")
 		timeout       = flag.Duration("timeout", 20*time.Second, "network timeout per request")
 		retries       = flag.Int("retries", 3, "download retry attempts")
 		concurrency   = flag.Int("concurrency", 4, "media download concurrency")
@@ -43,7 +44,7 @@ func main() {
 		}
 		c = &mock.Collector{FixturePath: *fixturePath}
 	case "gemini":
-		c = &gemini.Collector{}
+		c = &gemini.Collector{RemoteDebugURL: *debugURL}
 	default:
 		exitf("unknown collector: %s", *collectorName)
 	}

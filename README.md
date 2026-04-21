@@ -97,7 +97,7 @@ Current status (not yet a full replacement for the extension):
   - `logs/export.log`
 - Collector interface is implemented.
 - `mock` collector is implemented for fixture-driven testing.
-- `gemini` collector boundary exists as a v1 placeholder.
+- `gemini` collector now supports active-session extraction via Chrome/Edge remote debugging.
 - v1 targets:
   - Attach to an active browser session (no persisted cookies).
   - Export one chat per run.
@@ -111,11 +111,34 @@ cd cli
 go run ./cmd/gemini-exporter -collector mock -fixture ./testdata/mock_conversation.json -output ./gemini-export.zip
 ```
 
-Run with Gemini collector boundary (currently placeholder):
+Run with Gemini collector (active browser session attach):
+
+1) Start Chrome/Edge with remote debugging enabled.
+
+Linux:
+```bash
+google-chrome --remote-debugging-port=9222 --user-data-dir=/tmp/gemini-export-profile
+```
+
+Windows (PowerShell):
+```powershell
+& "C:\Program Files\Google\Chrome\Application\chrome.exe" --remote-debugging-port=9222 --user-data-dir="$env:TEMP\gemini-export-profile"
+```
+
+2) In that browser, sign in to Gemini and open the target chat.
+
+3) Run the exporter:
 
 ```bash
 cd cli
-go run ./cmd/gemini-exporter -collector gemini -output ./gemini-export.zip
+go run ./cmd/gemini-exporter -collector gemini -remote-debugging-url http://127.0.0.1:9222 -output ./gemini-export.zip
+```
+
+Optional: target a specific chat id:
+
+```bash
+cd cli
+go run ./cmd/gemini-exporter -collector gemini -conversation-id <gemini_chat_id> -remote-debugging-url http://127.0.0.1:9222 -output ./gemini-export.zip
 ```
 
 Cross-platform build example:
