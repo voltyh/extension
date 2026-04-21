@@ -336,6 +336,18 @@ func downloadAllMedia(ctx context.Context, tasks []mediaTask, workDir string, cf
 			relPath := filepath.ToSlash(filepath.Join("media", filename))
 			absPath := filepath.Join(workDir, "media", filename)
 			if _, err := os.Stat(absPath); err != nil {
+				if !os.IsNotExist(err) {
+					out <- mediaResult{
+						task: task,
+						failure: &model.Failure{
+							Code:    "write_failed",
+							Scope:   "media",
+							MediaID: ref.ID,
+							Message: err.Error(),
+						},
+					}
+					continue
+				}
 				if err := os.WriteFile(absPath, b, 0o644); err != nil {
 					out <- mediaResult{
 						task: task,
