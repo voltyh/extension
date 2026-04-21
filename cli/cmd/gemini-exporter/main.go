@@ -19,7 +19,7 @@ func main() {
 		collectorName = flag.String("collector", "mock", "collector to use: mock|gemini")
 		fixturePath   = flag.String("fixture", "", "path to mock fixture json (required for collector=mock)")
 		outputZip     = flag.String("output", "", "output zip file path")
-		workdir       = flag.String("workdir", "", "workspace directory (optional, enables resume-friendly runs)")
+		workdir       = flag.String("work-dir", "", "workspace directory (optional, enables resume-friendly runs)")
 		resume        = flag.Bool("resume", false, "reuse workspace if it already exists")
 		convID        = flag.String("conversation-id", "", "single Gemini conversation id (one chat per run)")
 		attachActive  = flag.Bool("attach-active-session", true, "attach to active logged-in browser session (gemini collector)")

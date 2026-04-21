@@ -3,6 +3,7 @@ package render
 import (
 	"bytes"
 	"html/template"
+	"strings"
 
 	"github.com/voltyh/extension/cli/internal/model"
 )
@@ -46,8 +47,8 @@ const pageTemplate = `<!doctype html>
 
 func Render(conv *model.Conversation) ([]byte, error) {
 	tpl, err := template.New("index").Funcs(template.FuncMap{
-		"isImage": func(mime string) bool { return len(mime) >= 6 && mime[:6] == "image/" },
-		"isVideo": func(mime string) bool { return len(mime) >= 6 && mime[:6] == "video/" },
+		"isImage": func(mime string) bool { return strings.HasPrefix(mime, "image/") },
+		"isVideo": func(mime string) bool { return strings.HasPrefix(mime, "video/") },
 	}).Parse(pageTemplate)
 	if err != nil {
 		return nil, err

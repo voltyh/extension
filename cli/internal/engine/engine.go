@@ -203,12 +203,12 @@ func normalizeConversation(conv *model.Conversation) {
 	for i := range conv.Messages {
 		msg := &conv.Messages[i]
 		if msg.ID == "" {
-			msg.ID = "msg-" + hashString(fmt.Sprintf("%s|%s|%s|%d", msg.Role, msg.Text, conv.ID, i))
+			msg.ID = "msg-" + hashString(msg.Role+"\x00"+msg.Text+"\x00"+conv.ID+"\x00"+fmt.Sprintf("%d", i))
 		}
 		for j := range msg.Media {
 			m := &msg.Media[j]
 			if m.ID == "" {
-				m.ID = "media-" + hashString(fmt.Sprintf("%s|%s|%s|%d", msg.ID, m.URL, m.Filename, j))
+				m.ID = "media-" + hashString(msg.ID+"\x00"+m.URL+"\x00"+m.Filename+"\x00"+fmt.Sprintf("%d", j))
 			}
 		}
 	}
@@ -335,8 +335,7 @@ func downloadAllMedia(ctx context.Context, tasks []mediaTask, workDir string, cf
 			filename := chooseFileName(ref, mimeType, checksum)
 			relPath := filepath.ToSlash(filepath.Join("media", filename))
 			absPath := filepath.Join(workDir, "media", filename)
-			if _, err := os.Stat(absPath); err == nil {
-			} else {
+			if _, err := os.Stat(absPath); err != nil {
 				if err := os.WriteFile(absPath, b, 0o644); err != nil {
 					out <- mediaResult{
 						task: task,
@@ -406,7 +405,7 @@ func classifyMediaError(err error) string {
 }
 
 func sourceKey(ref model.MediaRef) string {
-	return ref.URL + "|" + ref.DataURI + "|" + ref.SourcePath
+	return hashString(ref.URL + "\x00" + ref.DataURI + "\x00" + ref.SourcePath)
 }
 
 func fetchMedia(ctx context.Context, ref model.MediaRef, cfg Config) ([]byte, string, error) {
