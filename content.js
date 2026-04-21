@@ -225,10 +225,30 @@ function launchHarvesterV45() {
     autoBoxContainer.innerHTML = '<label style="cursor:pointer; display:flex; align-items:center; gap:5px;"><input type="checkbox" id="auto-phase-2" checked> Auto-start Phase 2 at top</label>';
     ui.appendChild(autoBoxContainer);
 
-    const stats = document.createElement('div');
+    const skipAttachContainer = document.createElement('div');
+    skipAttachContainer.style.marginBottom = '10px';
+    skipAttachContainer.innerHTML = '<label style="cursor:pointer; display:flex; align-items:center; gap:5px; color:#ccc;"><input type="checkbox" id="skip-attachments"> Skip attachment wizards (mark all missing)</label>';
+    ui.appendChild(skipAttachContainer);
+
+    const statsRow = document.createElement('div');
+    statsRow.style.cssText = 'display:flex; justify-content:space-between; align-items:center; margin-bottom:5px;';
+    const stats = document.createElement('span');
     stats.textContent = 'Messages: 0 | Media: 0';
-    stats.style.marginBottom = '10px';
-    ui.appendChild(stats);
+    const minimizeLogBtn = document.createElement('button');
+    minimizeLogBtn.textContent = '\u2212';
+    minimizeLogBtn.title = 'Toggle log panel';
+    Object.assign(minimizeLogBtn.style, {
+        background: 'transparent', color: '#888', border: '1px solid #444',
+        borderRadius: '3px', cursor: 'pointer', fontSize: '11px', padding: '0 5px', lineHeight: '16px'
+    });
+    minimizeLogBtn.onclick = () => {
+        const isHidden = logBox.style.display === 'none';
+        logBox.style.display = isHidden ? '' : 'none';
+        minimizeLogBtn.textContent = isHidden ? '\u2212' : '+';
+    };
+    statsRow.appendChild(stats);
+    statsRow.appendChild(minimizeLogBtn);
+    ui.appendChild(statsRow);
 
     const logBox = document.createElement('div');
     logBox.style.cssText = 'font-size:10px; color:#0f0; margin-bottom:15px; padding:8px; background:#000; border-radius:4px; height:120px; overflow-y:auto; border:1px solid #333;';
@@ -302,6 +322,7 @@ function launchHarvesterV45() {
         });
 
         await releaseAntiThrottling();
+        document.removeEventListener('keydown', keyboardHandler);
         console.log('Harvester Terminated.');
     };
 
@@ -312,6 +333,17 @@ function launchHarvesterV45() {
         pauseBtn.style.background = isPaused ? '#4caf50' : '#ff9800';
         log(isPaused ? 'Script Paused.' : 'Script Resumed.');
     };
+
+    // --- KEYBOARD SHORTCUT: Space = Pause / Resume ---
+    const keyboardHandler = (e) => {
+        const tag = document.activeElement ? document.activeElement.tagName.toLowerCase() : '';
+        if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
+        if (e.code === 'Space' && (isScrollingUp || isStreaming) && !stopRequested) {
+            e.preventDefault();
+            pauseBtn.click();
+        }
+    };
+    document.addEventListener('keydown', keyboardHandler);
 
     // --- WIZARD UI (Non-blocking, Draggable) ---
     const wizardBox = document.createElement('div');
@@ -429,6 +461,19 @@ function launchHarvesterV45() {
         }[tag] || tag));
     }
 
+    // Reject javascript:, data:, and other non-http(s) URIs before placing
+    // them in href attributes to prevent XSS via crafted filenames.
+    function safeUrl(url) {
+        if (!url) return null;
+        try {
+            const parsed = new URL(url, location.href);
+            if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') return null;
+        } catch (e) {
+            return null;
+        }
+        return url;
+    }
+
     function getFullFileName(previewEl) {
         let text = previewEl.innerText || previewEl.textContent || '';
         text = text.replace(/Remove file/gi, '').replace(/\n/g, '').trim();
@@ -503,9 +548,9 @@ function launchHarvesterV45() {
             const renderDropZone = () => {
                 wizContent.innerHTML = `
                     <h2 style="color:#9c27b0; margin-top:0;">Drag and Drop File</h2>
-                    <p style="color:#ccc;">Please drag <strong>${label}</strong> from your computer into the box below.</p>
+                    <p style="color:#ccc;">Please drag <strong>${escapeHTML(label)}</strong> from your computer into the box below.</p>
                     <div id="drop-zone" style="border:3px dashed #9c27b0; padding:40px; border-radius:10px; color:#dcdcdc; background:#2a2a2a; margin-top:10px; transition:0.3s;">
-                        Drop <strong>${label}</strong> here
+                        Drop <strong>${escapeHTML(label)}</strong> here
                     </div>
                     <button id="wiz-cancel-drop" style="margin-top:15px; padding:8px 15px; background:#444; border:none; color:#fff; border-radius:5px; cursor:pointer;">Cancel and Mark Missing</button>
                 `;
@@ -566,16 +611,17 @@ function launchHarvesterV45() {
                 return;
             }
 
-            const linkHtml = link
-                ? `<a href="${link}" target="_blank" style="color:#00e5ff; font-weight:bold; display:block; margin-bottom:15px;">Download Original from Google Drive</a>`
+            const safeLink = safeUrl(link);
+            const linkHtml = safeLink
+                ? `<a href="${safeLink}" target="_blank" style="color:#00e5ff; font-weight:bold; display:block; margin-bottom:15px;">Download Original from Google Drive</a>`
                 : '';
             const headerHtml = mode === 'initial'
                 ? '<h2 style="color:#ff9800; margin-top:0;">Attachment Detected</h2>'
-                : `<h2 style="color:#f44336; margin-top:0;">Processing Failed</h2><p style="color:#ffb74d;">${reason}</p>`;
+                : `<h2 style="color:#f44336; margin-top:0;">Processing Failed</h2><p style="color:#ffb74d;">${escapeHTML(reason)}</p>`;
 
             wizContent.innerHTML = `
                 ${headerHtml}
-                <p style="font-weight:bold; color:#fff; word-break:break-all;">File: ${label}</p>
+                <p style="font-weight:bold; color:#fff; word-break:break-all;">File: ${escapeHTML(label)}</p>
                 <div style="background:#000; padding:10px; border-radius:8px; margin:15px 0; display:flex; justify-content:center; align-items:center; max-height:100px; overflow:hidden;">
                     ${previewHtml}
                 </div>
@@ -715,7 +761,8 @@ function launchHarvesterV45() {
 
         let chatTitle = document.title.split('-')[0].trim().replace(/[^a-zA-Z0-9 \-_]/g, '_');
         if (!chatTitle || chatTitle === 'Gemini') chatTitle = 'Gemini_Archive';
-        const defaultFileName = `${chatTitle}.html`;
+        const exportDate = new Date().toISOString().slice(0, 10);
+        const defaultFileName = `${chatTitle}_${exportDate}.html`;
 
         let fileHandle;
         let writable;
@@ -740,6 +787,10 @@ function launchHarvesterV45() {
         if (autoLabel && autoLabel.parentElement) {
             autoLabel.parentElement.style.display = 'none';
         }
+        const skipElOuter = document.getElementById('skip-attachments');
+        if (skipElOuter && skipElOuter.parentElement && skipElOuter.parentElement.parentElement) {
+            skipElOuter.parentElement.parentElement.style.display = 'none';
+        }
         log(`File Stream Opened: ${defaultFileName}`);
 
         await writable.write(`<html><head><meta charset="UTF-8"><style>
@@ -761,13 +812,17 @@ function launchHarvesterV45() {
             model-thoughts, .thoughts-container { display: block; background: #e8f5e9; padding: 10px; margin-bottom: 15px; border-radius: 6px; font-size: 0.9em; border-left: 4px solid #4caf50; }
         </style></head><body>
         <a href="#media-appendix" style="display:block; text-align:center; padding:15px; background:#f29900; color:#000; font-weight:bold; text-decoration:none; margin-bottom:20px; border-radius:8px;">JUMP TO MEDIA APPENDIX</a>
-        <h1>${chatTitle}</h1>\n\n`);
+        <h1>${escapeHTML(chatTitle)}</h1>\n\n`);
 
+        const exportStartTime = Date.now();
+        const preflightCount = document.querySelectorAll('user-query, model-response, [data-message-author]').length;
+        log(`Pre-flight: ~${preflightCount} message blocks detected.`);
+        stats.textContent = `0 / ~${preflightCount} | 0 media`;
         let stuckCounter = 0;
         const scroller = getScroller();
         const filePreviewSelector = 'user-query-file-preview, file-preview, mat-chip, .attachment-chip, [data-test-id="file-preview"], [data-test-id="uploaded-file"]';
 
-        while (!stopRequested && stuckCounter < 10) {
+        while (!stopRequested && stuckCounter < 12) {
             while (isPaused && !stopRequested) {
                 document.querySelectorAll('[style*="outline: 4px solid"]').forEach((el) => {
                     el.style.outline = '';
@@ -887,10 +942,17 @@ function launchHarvesterV45() {
                     processedAttachments.add(label);
 
                     const aTag = preview.querySelector('a');
-                    const linkHref = preview.getAttribute('href') || (aTag ? aTag.getAttribute('href') : null);
+                    const linkHref = safeUrl(preview.getAttribute('href') || (aTag ? aTag.getAttribute('href') : null));
                     const safePreviewHtml = preview.outerHTML.replace(/<svg.*?<\/svg>/g, '');
 
                     log(`Evaluating Attachment: ${label}`);
+                    const skipAllAttach = document.getElementById('skip-attachments');
+                    if (skipAllAttach && skipAllAttach.checked) {
+                        missingFiles.set(label, { label, link: linkHref });
+                        mediaFound.push(`SKIPPED: ${label}`);
+                        safeMediaInjectionHTML += `<div class="media-marker">[ SKIPPED: ${escapeHTML(label)} ]</div>`;
+                        continue;
+                    }
                     let needsWizard = true;
                     let mode = 'initial';
                     let reason = '';
@@ -1110,7 +1172,9 @@ function launchHarvesterV45() {
                 if (writable) {
                     await writable.write(`<div id="${blockId}" class="entry ${el.tagName || 'DIV'}">${clone.innerHTML}</div>\n`);
                 }
-                stats.textContent = `Messages: ${messageCounter} | Media: ${mediaDirectory.length}`;
+                const elapsedMin = (Date.now() - exportStartTime) / 60000;
+                const rate = elapsedMin > 0.1 ? Math.round(messageCounter / elapsedMin) : '...';
+                stats.textContent = `${messageCounter} / ~${preflightCount} | ${mediaDirectory.length} media | ${rate}/min`;
                 log(`Block ${messageCounter} Written.`);
                 el.style.outline = '';
                 el.dataset.v45Captured = 'true';
@@ -1148,7 +1212,7 @@ function launchHarvesterV45() {
         if (missingFiles.size > 0) {
             appendix += '<div style="background:#ffebee; border:1px solid #f44336; padding:15px; border-radius:8px; margin-bottom:20px;"><h3 style="color:#d32f2f; margin-top:0;">Missing Files (Manual Download Required)</h3><ul style="margin-bottom:0; color:#b71c1c; font-weight:bold;">';
             Array.from(missingFiles.values()).forEach((doc) => {
-                appendix += `<li>${doc.label} ${doc.link ? `<a href="${doc.link}" target="_blank">[Drive Link]</a>` : ''}</li>`;
+                appendix += `<li>${escapeHTML(doc.label)} ${doc.link ? `<a href="${doc.link}" target="_blank">[Drive Link]</a>` : ''}</li>`;
             });
             appendix += '</ul></div>';
         }
@@ -1157,7 +1221,7 @@ function launchHarvesterV45() {
             appendix += '<p>No media detected.</p>';
         } else {
             mediaDirectory.forEach((item) => {
-                appendix += `<div style="padding:10px 0; border-bottom:1px solid #eee;"><span><strong>${item.snippet}...</strong><br><small style="color:#d32f2f;font-weight:bold;">${item.media.join(' | ')}</small></span><a href="#${item.id}" class="jump">JUMP TO MESSAGE</a></div>`;
+                appendix += `<div style="padding:10px 0; border-bottom:1px solid #eee;"><span><strong>${escapeHTML(item.snippet)}...</strong><br><small style="color:#d32f2f;font-weight:bold;">${item.media.map(escapeHTML).join(' | ')}</small></span><a href="#${item.id}" class="jump">JUMP TO MESSAGE</a></div>`;
             });
         }
 

@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Gemini Master Exporter",
-  "version": "2.6",
-  "description": "Exports massive Gemini chats locally with v45 merged UI, deep media fetch, and stability protections.",
+  "version": "3.0",
+  "description": "Exports massive Gemini chats locally. Deep media fetch, skip-attachments mode, speed tracking, security-hardened HTML output.",
   "permissions": ["activeTab"],
   "host_permissions": ["<all_urls>"],
   "background": {
