@@ -179,11 +179,11 @@ func resolveWorkDir(path string, resume bool) (string, func(), error) {
 		}
 		return path, func() {}, nil
 	}
-	tmp, err := os.MkdirTemp("", "gemini-export-*")
+	tempDir, err := os.MkdirTemp("", "gemini-export-*")
 	if err != nil {
 		return "", nil, err
 	}
-	return tmp, func() { _ = os.RemoveAll(tmp) }, nil
+	return tempDir, func() { _ = os.RemoveAll(tempDir) }, nil
 }
 
 func appendLog(path, line string) error {
@@ -455,14 +455,14 @@ func fetchMedia(ctx context.Context, ref model.MediaRef, cfg Config) ([]byte, st
 				return
 			}
 			ct := resp.Header.Get("Content-Type")
-			b, rerr := io.ReadAll(resp.Body)
+			responseData, rerr := io.ReadAll(resp.Body)
 			if rerr != nil {
 				lastErr = rerr
 				return
 			}
 			lastErr = nil
 			lastMime = ct
-			lastData = b
+			lastData = responseData
 		}()
 		cancel()
 		if lastErr == nil {
@@ -487,17 +487,17 @@ func decodeDataURI(in string) ([]byte, string, error) {
 	payload := parts[1]
 	mimeType := strings.TrimPrefix(strings.SplitN(meta, ";", 2)[0], "data:")
 	if strings.Contains(meta, ";base64") {
-		b, err := base64.StdEncoding.DecodeString(payload)
+		decodedData, err := base64.StdEncoding.DecodeString(payload)
 		if err != nil {
 			return nil, "", err
 		}
-		return b, mimeType, nil
+		return decodedData, mimeType, nil
 	}
-	b, err := url.QueryUnescape(payload)
+	decodedData, err := url.QueryUnescape(payload)
 	if err != nil {
 		return nil, "", err
 	}
-	return []byte(b), mimeType, nil
+	return []byte(decodedData), mimeType, nil
 }
 
 func chooseFileName(ref model.MediaRef, mimeType, checksum string) string {
