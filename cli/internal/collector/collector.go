@@ -7,7 +7,11 @@ import (
 )
 
 type Options struct {
-	ConversationID string
+	ConversationID        string
+	AttachActiveSession   bool
+	SingleConversationRun bool
+	IncludeMetadata       bool
+	MediaMode             string
 }
 
 type Collector interface {

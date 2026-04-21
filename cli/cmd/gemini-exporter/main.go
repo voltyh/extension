@@ -21,7 +21,10 @@ func main() {
 		outputZip     = flag.String("output", "", "output zip file path")
 		workdir       = flag.String("workdir", "", "workspace directory (optional, enables resume-friendly runs)")
 		resume        = flag.Bool("resume", false, "reuse workspace if it already exists")
-		convID        = flag.String("conversation-id", "", "gemini conversation id (collector-dependent)")
+		convID        = flag.String("conversation-id", "", "single Gemini conversation id (one chat per run)")
+		attachActive  = flag.Bool("attach-active-session", true, "attach to active logged-in browser session (gemini collector)")
+		includeMeta   = flag.Bool("include-metadata", true, "include model/system metadata when discoverable")
+		mediaMode     = flag.String("media-mode", "files", "media export mode: files (maps to media/*)")
 		timeout       = flag.Duration("timeout", 20*time.Second, "network timeout per request")
 		retries       = flag.Int("retries", 3, "download retry attempts")
 		concurrency   = flag.Int("concurrency", 4, "media download concurrency")
@@ -54,6 +57,10 @@ func main() {
 		DownloadRetries:         *retries,
 		DownloadConcurrency:     *concurrency,
 		CollectorConversationID: *convID,
+		AttachActiveSession:     *attachActive,
+		SingleConversationRun:   true,
+		IncludeMetadata:         *includeMeta,
+		MediaMode:               *mediaMode,
 	}
 
 	m, err := engine.Run(context.Background(), cfg)

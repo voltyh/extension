@@ -32,6 +32,10 @@ type Config struct {
 	Resume    bool
 
 	CollectorConversationID string
+	AttachActiveSession     bool
+	SingleConversationRun   bool
+	IncludeMetadata         bool
+	MediaMode               string
 	DownloadTimeout         time.Duration
 	DownloadRetries         int
 	DownloadConcurrency     int
@@ -76,7 +80,13 @@ func Run(ctx context.Context, cfg Config) (*model.Manifest, error) {
 		StartedAt:   started,
 	}
 
-	conv, err := cfg.Collector.Collect(ctx, collector.Options{ConversationID: cfg.CollectorConversationID})
+	conv, err := cfg.Collector.Collect(ctx, collector.Options{
+		ConversationID:        cfg.CollectorConversationID,
+		AttachActiveSession:   cfg.AttachActiveSession,
+		SingleConversationRun: cfg.SingleConversationRun,
+		IncludeMetadata:       cfg.IncludeMetadata,
+		MediaMode:             cfg.MediaMode,
+	})
 	if err != nil {
 		return nil, err
 	}
