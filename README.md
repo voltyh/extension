@@ -88,6 +88,10 @@ Gemini_Exporter_Extension/
 
 This repository now includes a CLI-first export engine scaffold at `cli/`.
 
+Beginner-friendly test instructions and the running CLI test-version log live in:
+
+- `/home/runner/work/extension/extension/cli/TESTING_GUIDE.md`
+
 Current status (not yet a full replacement for the extension):
 - Stable ZIP artifact contract is implemented:
   - `conversation.json`
@@ -108,7 +112,7 @@ Run with mock fixture:
 
 ```bash
 cd cli
-go run ./cmd/gemini-exporter -collector mock -fixture ./testdata/mock_conversation.json -output ./gemini-export.zip
+go run ./cmd/gemini-exporter -collector mock -fixture ./testdata/mock_conversation.json -output ./gemini-export-v0.2.0.zip
 ```
 
 Run with Gemini collector (active browser session attach):
@@ -131,22 +135,22 @@ Windows (PowerShell):
 
 ```bash
 cd cli
-go run ./cmd/gemini-exporter -collector gemini -remote-debugging-url http://127.0.0.1:9222 -output ./gemini-export.zip
+go run ./cmd/gemini-exporter -collector gemini -remote-debugging-url http://127.0.0.1:9222 -output ./gemini-export-v0.2.0.zip
 ```
 
 Optional: target a specific chat id:
 
 ```bash
 cd cli
-go run ./cmd/gemini-exporter -collector gemini -conversation-id <gemini_chat_id> -remote-debugging-url http://127.0.0.1:9222 -output ./gemini-export.zip
+go run ./cmd/gemini-exporter -collector gemini -conversation-id <gemini_chat_id> -remote-debugging-url http://127.0.0.1:9222 -output ./gemini-export-v0.2.0.zip
 ```
 
 Cross-platform build example:
 
 ```bash
 cd cli
-GOOS=linux GOARCH=amd64 go build -o ./bin/gemini-exporter-linux ./cmd/gemini-exporter
-GOOS=windows GOARCH=amd64 go build -o ./bin/gemini-exporter-windows.exe ./cmd/gemini-exporter
+GOOS=linux GOARCH=amd64 go build -ldflags "-X github.com/voltyh/extension/cli/internal/version.Build=v0.2.0-test1" -o ./bin/gemini-exporter-v0.2.0-test1-linux ./cmd/gemini-exporter
+GOOS=windows GOARCH=amd64 go build -ldflags "-X github.com/voltyh/extension/cli/internal/version.Build=v0.2.0-test1" -o ./bin/gemini-exporter-v0.2.0-test1-windows.exe ./cmd/gemini-exporter
 ```
 
 ---

@@ -2,8 +2,6 @@ package model
 
 import "time"
 
-const ToolVersion = "0.1.0"
-
 type Conversation struct {
 	ID       string    `json:"id"`
 	Title    string    `json:"title"`

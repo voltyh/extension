@@ -12,6 +12,7 @@ import (
 	"github.com/voltyh/extension/cli/internal/collector/gemini"
 	"github.com/voltyh/extension/cli/internal/collector/mock"
 	"github.com/voltyh/extension/cli/internal/engine"
+	"github.com/voltyh/extension/cli/internal/version"
 )
 
 func main() {
@@ -29,11 +30,17 @@ func main() {
 		timeout       = flag.Duration("timeout", 20*time.Second, "network timeout per request")
 		retries       = flag.Int("retries", 3, "download retry attempts")
 		concurrency   = flag.Int("concurrency", 4, "media download concurrency")
+		showVersion   = flag.Bool("version", false, "print CLI build version and exit")
 	)
 	flag.Parse()
 
+	if *showVersion {
+		fmt.Println(version.Label())
+		return
+	}
+
 	if *outputZip == "" {
-		*outputZip = filepath.Join(".", "gemini-export.zip")
+		*outputZip = filepath.Join(".", version.DefaultExportArchive())
 	}
 
 	var c collector.Collector
@@ -69,6 +76,7 @@ func main() {
 		exitf("export failed: %v", err)
 	}
 	fmt.Printf("export complete: %s\n", *outputZip)
+	fmt.Printf("tool version: %s\n", version.Label())
 	fmt.Printf("collector: %s\n", m.Collector)
 	fmt.Printf("messages: %d\n", m.MessageCount)
 	fmt.Printf("media: %d\n", m.MediaCount)

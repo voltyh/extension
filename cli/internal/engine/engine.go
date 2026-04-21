@@ -23,6 +23,7 @@ import (
 	"github.com/voltyh/extension/cli/internal/collector"
 	"github.com/voltyh/extension/cli/internal/model"
 	"github.com/voltyh/extension/cli/internal/render"
+	"github.com/voltyh/extension/cli/internal/version"
 	"github.com/voltyh/extension/cli/internal/zipper"
 )
 
@@ -76,7 +77,7 @@ func Run(ctx context.Context, cfg Config) (*model.Manifest, error) {
 
 	started := time.Now().UTC()
 	manifest := &model.Manifest{
-		ToolVersion: model.ToolVersion,
+		ToolVersion: version.Label(),
 		Collector:   cfg.Collector.Name(),
 		StartedAt:   started,
 	}
