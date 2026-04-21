@@ -17,12 +17,13 @@ type Message struct {
 }
 
 type MediaRef struct {
-	ID         string `json:"id"`
-	Filename   string `json:"filename,omitempty"`
-	MimeType   string `json:"mimeType,omitempty"`
-	URL        string `json:"url,omitempty"`
-	DataURI    string `json:"dataUri,omitempty"`
-	SourcePath string `json:"sourcePath,omitempty"`
+	ID          string `json:"id"`
+	Filename    string `json:"filename,omitempty"`
+	MimeType    string `json:"mimeType,omitempty"`
+	URL         string `json:"url,omitempty"`
+	DataURI     string `json:"dataUri,omitempty"`
+	SourcePath  string `json:"sourcePath,omitempty"`
+	TextContent string `json:"textContent,omitempty"`
 
 	ExportPath string `json:"exportPath,omitempty"`
 	Checksum   string `json:"checksum,omitempty"`

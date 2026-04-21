@@ -21,6 +21,8 @@ const pageTemplate = `<!doctype html>
     .a { border-left: 5px solid #26a69a; }
     .meta { color: #666; font-size: 12px; margin-bottom: 8px; }
     img, video { max-width: 100%; border-radius: 6px; margin-top: 8px; }
+    .attachment { margin-top: 8px; }
+    pre { white-space: pre-wrap; background: #f6f8fa; padding: 10px; border-radius: 6px; overflow-x: auto; }
   </style>
 </head>
 <body>
@@ -31,7 +33,12 @@ const pageTemplate = `<!doctype html>
       <div>{{ .Text }}</div>
       {{ range .Media }}
         {{ if .ExportPath }}
-          {{ if isImage .MimeType }}
+          {{ if .TextContent }}
+            <div class="attachment">
+              <div><a href="{{ .ExportPath }}">{{ .Filename }}</a></div>
+              <pre>{{ .TextContent }}</pre>
+            </div>
+          {{ else if isImage .MimeType }}
             <img src="{{ .ExportPath }}" alt="{{ .Filename }}">
           {{ else if isVideo .MimeType }}
             <video controls src="{{ .ExportPath }}"></video>
