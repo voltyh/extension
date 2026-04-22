@@ -22,6 +22,8 @@ const pageTemplate = `<!doctype html>
     .meta { color: #666; font-size: 12px; margin-bottom: 8px; }
     img, video { max-width: 100%; border-radius: 6px; margin-top: 8px; }
     .attachment { margin-top: 8px; }
+    .attachment-name { font-weight: 600; margin-bottom: 6px; }
+    object.attachment-object { width: 100%; min-height: 360px; border: 1px solid #ddd; border-radius: 6px; }
     pre { white-space: pre-wrap; background: #f6f8fa; padding: 10px; border-radius: 6px; overflow-x: auto; }
   </style>
 </head>
@@ -35,7 +37,7 @@ const pageTemplate = `<!doctype html>
         {{ if .ExportPath }}
           {{ if .TextContent }}
             <div class="attachment">
-              <div><a href="{{ .ExportPath }}">{{ .Filename }}</a></div>
+              <div class="attachment-name">{{ .Filename }}</div>
               <pre>{{ .TextContent }}</pre>
             </div>
           {{ else if isImage .MimeType }}
@@ -43,7 +45,10 @@ const pageTemplate = `<!doctype html>
           {{ else if isVideo .MimeType }}
             <video controls src="{{ .ExportPath }}"></video>
           {{ else }}
-            <div><a href="{{ .ExportPath }}">{{ .Filename }}</a></div>
+            <div class="attachment">
+              <div class="attachment-name">{{ .Filename }}</div>
+              <object class="attachment-object" data="{{ .ExportPath }}" type="{{ .MimeType }}"></object>
+            </div>
           {{ end }}
         {{ end }}
       {{ end }}

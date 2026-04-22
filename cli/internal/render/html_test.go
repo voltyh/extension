@@ -34,9 +34,15 @@ func TestRenderIncludesTextAttachmentContent(t *testing.T) {
 	}
 
 	html := string(out)
-	for _, want := range []string{"notes.txt", "line one", "line two", "media/notes.txt"} {
+	for _, want := range []string{"notes.txt", "line one", "line two"} {
 		if !strings.Contains(html, want) {
 			t.Fatalf("render output missing %q", want)
 		}
+	}
+	if strings.Contains(html, "media/notes.txt") {
+		t.Fatalf("render output should not include direct attachment href for text attachment")
+	}
+	if strings.Contains(html, "<a href=") {
+		t.Fatalf("render output should not contain attachment hyperlinks")
 	}
 }

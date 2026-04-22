@@ -325,6 +325,41 @@ func extractConversationScript(includeMetadata bool) string {
     document.dispatchEvent(new KeyboardEvent("keyup", { key: "Escape", bubbles: true }));
     await wait(150);
   };
+  const materializeConversationDOM = async () => {
+    const scroller = document.scrollingElement || document.documentElement || document.body;
+    if (!scroller) return;
+    const step = Math.max(260, Math.floor(window.innerHeight * 0.85));
+    const settleAt = async (targetTop) => {
+      scroller.scrollTo({ top: targetTop, behavior: "auto" });
+      await wait(120);
+      expandMessage(document.body);
+      await wait(60);
+    };
+    for (let i = 0; i < 4; i += 1) {
+      await settleAt(scroller.scrollHeight);
+      await settleAt(0);
+    }
+    const maxPasses = 80;
+    for (let pass = 0; pass < maxPasses; pass += 1) {
+      const top = scroller.scrollTop || 0;
+      const next = Math.min(scroller.scrollHeight, top + step);
+      await settleAt(next);
+      if (Math.abs(next - top) < 2 || next >= scroller.scrollHeight - 2) break;
+    }
+    await settleAt(0);
+  };
+  const captureImageByURL = async (rawURL) => {
+    const src = asAbsURL(rawURL);
+    if (!src) return null;
+    if (src.startsWith("data:")) {
+      return { dataUri: src, mimeType: mimeFromDataURI(src) || "image/*", src };
+    }
+    const fetched = await fetchAsDataURI(src);
+    if (fetched) {
+      return { dataUri: fetched, mimeType: mimeFromDataURI(fetched) || mimeFromURL(src) || "image/*", src };
+    }
+    return { url: src, mimeType: mimeFromURL(src) || "image/*", src };
+  };
   const getImageCapture = async (img) => {
     if (!img) return null;
     const src = asAbsURL(img.currentSrc || img.src || "");
@@ -332,7 +367,12 @@ func extractConversationScript(includeMetadata bool) string {
     if (src.startsWith("data:")) {
       return { dataUri: src, mimeType: mimeFromDataURI(src) || "image/*" };
     }
-    if (src.startsWith("blob:")) {
+    try {
+      if (typeof img.decode === "function") {
+        await img.decode();
+      }
+    } catch (_) {}
+    try {
       try {
         const canvas = document.createElement("canvas");
         canvas.width = img.naturalWidth || img.width || 800;
@@ -343,7 +383,7 @@ func extractConversationScript(includeMetadata bool) string {
           return { dataUri: canvas.toDataURL("image/png"), mimeType: "image/png" };
         }
       } catch (_) {}
-    }
+    } catch (_) {}
     const fetched = await fetchAsDataURI(src);
     if (fetched) {
       return { dataUri: fetched, mimeType: mimeFromDataURI(fetched) || mimeFromURL(src) || "image/*" };
@@ -469,6 +509,7 @@ func extractConversationScript(includeMetadata bool) string {
     if (tag.includes("model-response") || roleAttr.includes("model") || roleAttr.includes("assistant") || cls.includes("model-response") || cls.includes("assistant")) return "assistant";
     return "assistant";
   };
+  await materializeConversationDOM();
   const messageNodes = Array.from(document.querySelectorAll([
     "user-query",
     "model-response",
@@ -493,15 +534,42 @@ func extractConversationScript(includeMetadata bool) string {
     const filePreviews = uniqueTopLevel(allFilePreviews);
     const validImages = Array.from(targetContent.querySelectorAll("img:not(.avatar):not([src*='avatar'])"))
       .filter((img) => !img.closest(filePreviewSelector) && (img.naturalWidth || 0) > 20 && !/icon|\/32\/type\//i.test(img.currentSrc || img.src || ""));
+    const seenImageSources = new Set();
     let mediaCount = 0;
     for (const img of validImages) {
       const captured = await getImageCapture(img);
       if (!captured) continue;
       const src = asAbsURL(img.currentSrc || img.src || "");
+      if (src && seenImageSources.has(src)) continue;
+      if (src) seenImageSources.add(src);
       const mime = captured.mimeType || mimeFromURL(src) || "image/*";
       media.push({
         id: "media-" + i + "-" + (mediaCount++),
         filename: ensureFilename(img.getAttribute("alt") || fileNameFromURL(src), mime, "image-" + (mediaCount)),
+        mimeType: mime,
+        url: captured.url || "",
+        dataUri: captured.dataUri || ""
+      });
+    }
+    const imageLinkMatches = [];
+    const mdRegex = /!\[[^\]]*\]\(([^)\s]+(?:\s+"[^"]*")?)\)/g;
+    let md;
+    while ((md = mdRegex.exec(text)) !== null) {
+      const raw = (md[1] || "").replace(/\s+"[^"]*"$/, "");
+      if (raw) imageLinkMatches.push(raw);
+    }
+    const linkedImageURLs = Array.from(targetContent.querySelectorAll("a[href]"))
+      .map((a) => asAbsURL(a.getAttribute("href") || ""))
+      .filter((u) => /\.(png|jpe?g|gif|webp|svg)(\?|#|$)/i.test(u));
+    for (const linked of [...imageLinkMatches, ...linkedImageURLs]) {
+      if (!linked || seenImageSources.has(linked)) continue;
+      const captured = await captureImageByURL(linked);
+      if (!captured) continue;
+      seenImageSources.add(linked);
+      const mime = captured.mimeType || mimeFromURL(linked) || "image/*";
+      media.push({
+        id: "media-" + i + "-" + (mediaCount++),
+        filename: ensureFilename(fileNameFromURL(linked), mime, "image-link-" + (mediaCount)),
         mimeType: mime,
         url: captured.url || "",
         dataUri: captured.dataUri || ""
