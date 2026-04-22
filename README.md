@@ -2,6 +2,8 @@
 
 A Chrome extension that exports your entire Gemini conversation history — including text, images, attachments, and AI-generated media — into a single, fully self-contained HTML archive.
 
+> This repo is still a Chrome extension first. The CLI under `cli/` is an **experimental scaffold** and does not replace the extension workflow yet.
+
 ---
 
 ## Features
@@ -16,7 +18,7 @@ A Chrome extension that exports your entire Gemini conversation history — incl
 - **Terminate**: Cleanly stops the export, writes closing HTML so the partial file remains valid, and releases all system resources.
 - **Anti-throttle engine**: Plays a silent audio loop and requests the Screen Wake Lock API to prevent Chrome from throttling or sleeping during long exports.
 - **Media appendix**: A jump-to-message index is written at the end of every export, listing every captured or missing file.
-- **Diagnostic log export**: A `.txt` log of every operation is saved automatically when the export completes.
+- **Diagnostic log export**: A timestamped `.txt` log is auto-downloaded on complete, terminate, or save-dialog failure/cancel, and the filename is shown in the UI log.
 - **Memory-safe streaming**: The HTML archive is streamed to disk block-by-block via the File System Access API — large conversations never balloon RAM.
 
 ---
@@ -78,6 +80,77 @@ Gemini_Exporter_Extension/
 ├── background.js      # Service worker — proxies cross-origin image fetches via chrome.runtime
 ├── content.js         # Main injected script — all UI and export logic
 └── README.md          # This file
+```
+
+---
+
+## CLI Export Engine (Experimental Scaffold)
+
+This repository now includes a CLI-first export engine scaffold at `cli/`.
+
+Beginner-friendly test instructions and the running CLI test-version log live in:
+
+- `/home/runner/work/extension/extension/cli/TESTING_GUIDE.md`
+
+Current status (not yet a full replacement for the extension):
+- Stable ZIP artifact contract is implemented:
+  - `conversation.json`
+  - `media/*`
+  - `index.html`
+  - `manifest.json`
+  - `logs/export.log`
+- Collector interface is implemented.
+- `mock` collector is implemented for fixture-driven testing.
+- `gemini` collector now supports active-session extraction via Chrome/Edge remote debugging.
+- v1 targets:
+  - Attach to an active browser session (no persisted cookies).
+  - Export one chat per run.
+  - Keep media as files under `media/*` (not base64 in HTML).
+  - Include model/system metadata when discoverable.
+
+Run with mock fixture:
+
+```bash
+cd cli
+go run ./cmd/gemini-exporter -collector mock -fixture ./testdata/mock_conversation.json -output ./gemini-export-v0.2.0.zip
+```
+
+Run with Gemini collector (active browser session attach):
+
+1) Start Chrome/Edge with remote debugging enabled.
+
+Linux:
+```bash
+google-chrome --remote-debugging-port=9222 --user-data-dir=/tmp/gemini-export-profile
+```
+
+Windows (PowerShell):
+```powershell
+& "C:\Program Files\Google\Chrome\Application\chrome.exe" --remote-debugging-port=9222 --user-data-dir="$env:TEMP\gemini-export-profile"
+```
+
+2) In that browser, sign in to Gemini and open the target chat.
+
+3) Run the exporter:
+
+```bash
+cd cli
+go run ./cmd/gemini-exporter -collector gemini -remote-debugging-url http://127.0.0.1:9222 -output ./gemini-export-v0.2.0.zip
+```
+
+Optional: target a specific chat id:
+
+```bash
+cd cli
+go run ./cmd/gemini-exporter -collector gemini -conversation-id <gemini_chat_id> -remote-debugging-url http://127.0.0.1:9222 -output ./gemini-export-v0.2.0.zip
+```
+
+Cross-platform build example:
+
+```bash
+cd cli
+GOOS=linux GOARCH=amd64 go build -ldflags "-X github.com/voltyh/extension/cli/internal/version.Build=v0.2.0-test1" -o ./bin/gemini-exporter-v0.2.0-test1-linux ./cmd/gemini-exporter
+GOOS=windows GOARCH=amd64 go build -ldflags "-X github.com/voltyh/extension/cli/internal/version.Build=v0.2.0-test1" -o ./bin/gemini-exporter-v0.2.0-test1-windows.exe ./cmd/gemini-exporter
 ```
 
 ---

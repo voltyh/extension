@@ -1,0 +1,91 @@
+package main
+
+import (
+	"context"
+	"flag"
+	"fmt"
+	"os"
+	"path/filepath"
+	"time"
+
+	"github.com/voltyh/extension/cli/internal/collector"
+	"github.com/voltyh/extension/cli/internal/collector/gemini"
+	"github.com/voltyh/extension/cli/internal/collector/mock"
+	"github.com/voltyh/extension/cli/internal/engine"
+	"github.com/voltyh/extension/cli/internal/version"
+)
+
+func main() {
+	var (
+		collectorName = flag.String("collector", "mock", "collector to use: mock|gemini")
+		fixturePath   = flag.String("fixture", "", "path to mock fixture json (required for collector=mock)")
+		outputZip     = flag.String("output", "", "output zip file path")
+		workdir       = flag.String("work-dir", "", "workspace directory (optional, enables resume-friendly runs)")
+		resume        = flag.Bool("resume", false, "reuse workspace if it already exists")
+		convID        = flag.String("conversation-id", "", "single Gemini conversation id (one chat per run)")
+		attachActive  = flag.Bool("attach-active-session", true, "attach to active logged-in browser session (gemini collector)")
+		includeMeta   = flag.Bool("include-metadata", true, "include model/system metadata when discoverable")
+		mediaMode     = flag.String("media-mode", "files", "media export mode: files (maps to media/*)")
+		captureDiag   = flag.Bool("capture-diagnostics", false, "capture detailed Gemini page diagnostics for offline analysis")
+		debugURL      = flag.String("remote-debugging-url", "http://127.0.0.1:9222", "Chrome/Edge remote debugging endpoint for collector=gemini")
+		timeout       = flag.Duration("timeout", 20*time.Second, "network timeout per request")
+		retries       = flag.Int("retries", 3, "download retry attempts")
+		concurrency   = flag.Int("concurrency", 4, "media download concurrency")
+		showVersion   = flag.Bool("version", false, "print CLI build version and exit")
+	)
+	flag.Parse()
+
+	if *showVersion {
+		fmt.Println(version.Label())
+		return
+	}
+
+	if *outputZip == "" {
+		*outputZip = filepath.Join(".", version.DefaultExportArchive())
+	}
+
+	var c collector.Collector
+	switch *collectorName {
+	case "mock":
+		if *fixturePath == "" {
+			exitf("collector=mock requires -fixture")
+		}
+		c = &mock.Collector{FixturePath: *fixturePath}
+	case "gemini":
+		c = &gemini.Collector{RemoteDebugURL: *debugURL}
+	default:
+		exitf("unknown collector: %s", *collectorName)
+	}
+
+	cfg := engine.Config{
+		Collector:               c,
+		OutputZip:               *outputZip,
+		WorkDir:                 *workdir,
+		Resume:                  *resume,
+		DownloadTimeout:         *timeout,
+		DownloadRetries:         *retries,
+		DownloadConcurrency:     *concurrency,
+		CollectorConversationID: *convID,
+		AttachActiveSession:     *attachActive,
+		SingleConversationRun:   true,
+		IncludeMetadata:         *includeMeta,
+		MediaMode:               *mediaMode,
+		CaptureDiagnostics:      *captureDiag,
+	}
+
+	m, err := engine.Run(context.Background(), cfg)
+	if err != nil {
+		exitf("export failed: %v", err)
+	}
+	fmt.Printf("export complete: %s\n", *outputZip)
+	fmt.Printf("tool version: %s\n", version.Label())
+	fmt.Printf("collector: %s\n", m.Collector)
+	fmt.Printf("messages: %d\n", m.MessageCount)
+	fmt.Printf("media: %d\n", m.MediaCount)
+	fmt.Printf("failures: %d\n", len(m.Failures))
+}
+
+func exitf(format string, args ...any) {
+	_, _ = fmt.Fprintf(os.Stderr, format+"\n", args...)
+	os.Exit(1)
+}

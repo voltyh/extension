@@ -116,17 +116,42 @@ function launchHarvesterV45() {
     // Anti-throttle and wake lock protections.
     let wakeLock = null;
     let antiThrottleAudio = null;
+    let antiThrottleContext = null;
+    let antiThrottleOscillator = null;
+    let antiThrottleGain = null;
 
     async function engageAntiThrottling() {
         try {
-            antiThrottleAudio = document.createElement('audio');
-            antiThrottleAudio.src = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=';
-            antiThrottleAudio.loop = true;
-            antiThrottleAudio.volume = 0.01;
-            await antiThrottleAudio.play();
+            if (!antiThrottleContext || antiThrottleContext.state === 'closed') {
+                const AudioCtx = window.AudioContext || window.webkitAudioContext;
+                if (!AudioCtx) throw new Error('WebAudio unavailable');
+                antiThrottleContext = new AudioCtx();
+                antiThrottleOscillator = antiThrottleContext.createOscillator();
+                antiThrottleGain = antiThrottleContext.createGain();
+                antiThrottleOscillator.type = 'sine';
+                antiThrottleOscillator.frequency.value = 19000;
+                antiThrottleGain.gain.value = 0.00001;
+                antiThrottleOscillator.connect(antiThrottleGain);
+                antiThrottleGain.connect(antiThrottleContext.destination);
+                antiThrottleOscillator.start();
+            }
+            if (antiThrottleContext.state !== 'running') {
+                await antiThrottleContext.resume();
+            }
             log('Anti-Throttling Media Engine Active.');
         } catch (e) {
-            log('Anti-Throttle audio could not start.');
+            try {
+                antiThrottleAudio = document.createElement('audio');
+                antiThrottleAudio.src = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=';
+                antiThrottleAudio.loop = true;
+                antiThrottleAudio.volume = 0.01;
+                antiThrottleAudio.muted = true;
+                antiThrottleAudio.setAttribute('playsinline', 'true');
+                await antiThrottleAudio.play();
+                log('Anti-Throttling Media Engine Active (fallback).');
+            } catch (fallbackError) {
+                log('Anti-Throttle audio could not start.');
+            }
         }
 
         try {
@@ -161,10 +186,34 @@ function launchHarvesterV45() {
             log('Wake Lock release failed.');
         }
 
-        if (antiThrottleAudio) {
-            antiThrottleAudio.pause();
-            antiThrottleAudio.remove();
-            antiThrottleAudio = null;
+        const hadAntiThrottleEngine = !!(antiThrottleAudio || antiThrottleOscillator || antiThrottleContext);
+        try {
+            if (antiThrottleAudio) {
+                antiThrottleAudio.pause();
+                antiThrottleAudio.remove();
+                antiThrottleAudio = null;
+            }
+
+            if (antiThrottleOscillator) {
+                antiThrottleOscillator.stop();
+                antiThrottleOscillator.disconnect();
+                antiThrottleOscillator = null;
+            }
+
+            if (antiThrottleGain) {
+                antiThrottleGain.disconnect();
+                antiThrottleGain = null;
+            }
+
+            if (antiThrottleContext) {
+                await antiThrottleContext.close();
+                antiThrottleContext = null;
+            }
+        } catch (e) {
+            log('Anti-Throttle release cleanup encountered an issue.');
+        }
+
+        if (hadAntiThrottleEngine) {
             log('Anti-Throttling Disabled.');
         }
     }
@@ -311,6 +360,7 @@ function launchHarvesterV45() {
         stopRequested = true;
         isPaused = false;
         isScrollingUp = false;
+        exportDiagnosticLogs('terminated');
 
         ui.remove();
         const wizard = document.getElementById('harvester-wizard');
@@ -422,18 +472,20 @@ function launchHarvesterV45() {
         }
     }
 
-    function exportDiagnosticLogs() {
+    function exportDiagnosticLogs(reason = 'run') {
         if (executionLogs.length === 0) return;
+        const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+        const fileName = `Harvester_Diagnostics_Log_v45_${reason}_${stamp}.txt`;
         const blob = new Blob([executionLogs.join('\n')], { type: 'text/plain' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = 'Harvester_Diagnostics_Log_v45.txt';
+        a.download = fileName;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
-        log('Diagnostic logs exported.');
+        log(`Diagnostic logs exported: ${fileName}`);
     }
 
     function getScroller() {
@@ -758,8 +810,8 @@ function launchHarvesterV45() {
                     log('Top reached.');
                     const autoCheckbox = document.getElementById('auto-phase-2');
                     if (autoCheckbox && autoCheckbox.checked) {
-                        log('Auto-starting Phase 2...');
-                        downBtn.click();
+                        downBtn.style.boxShadow = '0 0 0 2px #00e5ff inset';
+                        log('Phase 2 is ready. Click "Phase 2: Save" to open the save dialog.');
                     }
                 }
             }
@@ -774,6 +826,7 @@ function launchHarvesterV45() {
     downBtn.onclick = async () => {
         isScrollingUp = false;
         if (isStreaming || stopRequested) return;
+        downBtn.style.boxShadow = '';
 
         let chatTitle = document.title.split('-')[0].trim().replace(/[^a-zA-Z0-9 \-_]/g, '_');
         if (!chatTitle || chatTitle === 'Gemini') chatTitle = 'Gemini_Archive';
@@ -789,7 +842,16 @@ function launchHarvesterV45() {
             });
             writable = await fileHandle.createWritable();
         } catch (e) {
-            log('Save cancelled by user.');
+            if (e && e.name === 'AbortError') {
+                log('Save dialog was closed before selecting a file.');
+                exportDiagnosticLogs('save-dialog-closed');
+            } else if (e && (e.name === 'NotAllowedError' || e.name === 'SecurityError')) {
+                log('Save dialog blocked by browser security. Click "Phase 2: Save" directly to continue.');
+                exportDiagnosticLogs('save-dialog-blocked');
+            } else {
+                log(`Save dialog failed: ${e && e.message ? e.message : 'unknown error'}`);
+                exportDiagnosticLogs('save-dialog-error');
+            }
             return;
         }
 
@@ -1215,6 +1277,7 @@ function launchHarvesterV45() {
                 }
             }
             await releaseAntiThrottling();
+            exportDiagnosticLogs('terminated-early');
             return;
         }
 
@@ -1244,7 +1307,7 @@ function launchHarvesterV45() {
 
         log('Export Complete!');
         await releaseAntiThrottling();
-        exportDiagnosticLogs();
+        exportDiagnosticLogs('completed');
 
         btnContainer.innerHTML = '';
         const reloadBtn = document.createElement('button');
