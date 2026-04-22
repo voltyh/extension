@@ -441,6 +441,17 @@ func extractConversationScript(includeMetadata, captureDiagnostics bool) string 
     }
     return null;
   };
+  const waitForAnyElement = async (selectors, timeoutMs) => {
+    const deadline = Date.now() + (timeoutMs || 5000);
+    while (Date.now() < deadline) {
+      for (const sel of selectors) {
+        const el = document.querySelector(sel);
+        if (el) return el;
+      }
+      await wait(100);
+    }
+    return null;
+  };
   const closeActiveViewers = async () => {
     const closers = Array.from(document.querySelectorAll('button[aria-label*="close" i], button[mattooltip*="close" i], [role="button"][aria-label*="close" i]'));
     for (const btn of closers) {
@@ -528,16 +539,76 @@ func extractConversationScript(includeMetadata, captureDiagnostics bool) string 
     }
     return { url: src, mimeType: mimeFromURL(src) || "video/*" };
   };
+  const viewerPanelSelectors = [
+    ".file-preview-sidebar",
+    "mat-sidenav.mat-drawer-opened",
+    "mat-sidenav[opened]",
+    ".mat-drawer-opened:not(.mat-drawer-side)",
+    "file-viewer",
+    "attachment-viewer",
+    "document-viewer",
+    "[class*='file-viewer']",
+    "[class*='attachment-viewer']",
+    "[class*='preview-panel']",
+    "[class*='preview-sidebar']",
+    "dialog[open]",
+    "[role='dialog'][aria-modal='true']",
+    "[role='complementary'][class*='panel']",
+    ".fullscreen-preview"
+  ];
+  const textContentSelectors = [
+    "pre",
+    "code",
+    ".text-content",
+    "[contenteditable='true']",
+    "[class*='code-content']",
+    "[class*='file-content']",
+    "[class*='code-viewer']",
+    "[class*='source-code']",
+    "[class*='code-block']",
+    ".hljs",
+    ".language-json",
+    ".language-javascript",
+    ".language-typescript",
+    ".language-python",
+    "[data-language]",
+    "[class*='token-line']",
+    "[class*='line-number']"
+  ];
   const capturePreview = async (preview, msgIndex, mediaIndex) => {
     let label = getFullFileName(preview);
     const fallbackHref = asAbsURL(preview.getAttribute("href") || (preview.querySelector("a[href]") ? preview.querySelector("a[href]").getAttribute("href") : ""));
     const clickTarget = preview.querySelector("button, a, [role='button']") || preview;
     try { clickTarget.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true })); } catch (_) {}
-    await wait(250);
-    const viewer = await waitForElement(".file-preview-sidebar, mat-sidenav, .mat-drawer-opened, .mat-drawer, dialog, [role='dialog'], .fullscreen-preview", 3500);
+    await wait(400);
+    const viewer = await waitForAnyElement(viewerPanelSelectors, 5000);
+    if (captureDiagnostics && viewer) {
+      attachmentEvents.push({
+        msgIndex,
+        mediaIndex,
+        source: "viewer-opened",
+        viewerTag: (viewer.tagName || "").toLowerCase(),
+        viewerClass: (viewer.className || "").toString().slice(0, 300),
+        viewerOuterHTMLSlice: (viewer.outerHTML || "").slice(0, 2000),
+        ts: new Date().toISOString()
+      });
+    }
     let media = null;
     try {
       if (viewer) {
+        // Extract better filename from viewer title bar
+        const titleEl = viewer.querySelector(
+          "mat-toolbar, [class*='toolbar'], [class*='panel-title'], [class*='filename'], " +
+          "[class*='file-name'], h1, h2, h3, .title"
+        );
+        if (titleEl) {
+          const titleText = (titleEl.innerText || titleEl.textContent || "")
+            .trim().replace(/[\n\r].*/g, "").trim();
+          if (titleText && /\.[A-Za-z0-9]{2,8}$/.test(titleText)) {
+            label = titleText;
+          }
+        }
+        // 1. Image attachment
         const img = viewer.querySelector("img:not(.avatar)");
         if (img) {
           const captured = await getImageCapture(img);
@@ -551,6 +622,7 @@ func extractConversationScript(includeMetadata, captureDiagnostics bool) string 
             };
           }
         }
+        // 2. Video attachment
         if (!media) {
           const video = viewer.querySelector("video, source[src]");
           if (video) {
@@ -566,67 +638,163 @@ func extractConversationScript(includeMetadata, captureDiagnostics bool) string 
             }
           }
         }
+        // 3. Text/code content visible in DOM (highest fidelity for JSON, TXT, etc.)
         if (!media) {
           let extractedText = "";
-          const directTextNode = viewer.querySelector("pre, code, .text-content, [contenteditable='true']");
-          if (directTextNode && (directTextNode.innerText || "").trim()) {
-            extractedText = directTextNode.innerText.trim();
+          // Try specific code/text selectors first
+          for (const sel of textContentSelectors) {
+            const node = viewer.querySelector(sel);
+            if (node && (node.innerText || "").trim().length > 4) {
+              extractedText = (node.innerText || "").trim();
+              break;
+            }
           }
+          // Try iframe (sandboxed preview)
           if (!extractedText) {
             const iframe = viewer.querySelector("iframe");
             if (iframe) {
               try {
                 const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
-                extractedText = (iframeDoc && iframeDoc.body && iframeDoc.body.innerText ? iframeDoc.body.innerText.trim() : "");
+                extractedText = (iframeDoc && iframeDoc.body && iframeDoc.body.innerText
+                  ? iframeDoc.body.innerText.trim() : "");
               } catch (_) {}
             }
           }
-          if (extractedText) {
+          // Fallback: read the whole viewer content area minus toolbar
+          if (!extractedText) {
+            const scrollArea = viewer.querySelector(
+              "[class*='content'], [class*='body'], [class*='scroll'], main"
+            ) || viewer;
+            const toolbar = scrollArea.querySelector(
+              "mat-toolbar, [class*='toolbar'], [class*='header'], header"
+            );
+            if (toolbar) {
+              extractedText = (scrollArea.innerText || "")
+                .replace(toolbar.innerText || "", "").trim();
+            } else {
+              extractedText = ((scrollArea === viewer
+                ? scrollArea.innerText : scrollArea.innerText) || "").trim();
+            }
+            if (extractedText.length > 2 * 1024 * 1024) {
+              extractedText = extractedText.slice(0, 2 * 1024 * 1024);
+            }
+          }
+          if (extractedText && extractedText.length > 4) {
+            const guessedMime = (() => {
+              const m = mimeFromURL(label);
+              return (!m || m === "image/*" || m === "video/*") ? "text/plain" : m;
+            })();
             media = {
               id: "media-" + msgIndex + "-" + mediaIndex,
-              filename: ensureFilename(label, "text/plain", "attachment-text-" + (mediaIndex + 1)),
-              mimeType: "text/plain",
-              dataUri: textToDataURI(extractedText, "text/plain;charset=utf-8"),
+              filename: ensureFilename(label, guessedMime, "attachment-text-" + (mediaIndex + 1)),
+              mimeType: guessedMime,
+              dataUri: textToDataURI(extractedText, guessedMime + ";charset=utf-8"),
               textContent: extractedText
             };
           }
         }
+        // 4. Download button: intercept blob URL.createObjectURL or fetch direct href
         if (!media) {
-          const downloadHref = asAbsURL(
+          const downloadBtn = viewer.querySelector(
+            'button[aria-label*="download" i], button[mattooltip*="download" i], ' +
+            '[role="button"][aria-label*="download" i], [role="button"][mattooltip*="download" i], ' +
+            'a[href][download], ' +
+            'a[href*="googleusercontent"], a[href*="drive.google.com"], a[href*="docs.google.com"]'
+          );
+          if (downloadBtn) {
+            const downloadHref = downloadBtn.getAttribute("href") || "";
+            if (downloadHref) {
+              const absHref = asAbsURL(downloadHref);
+              if (captureDiagnostics) {
+                attachmentEvents.push({
+                  msgIndex, mediaIndex, source: "viewer-download-anchor",
+                  href: absHref, ts: new Date().toISOString()
+                });
+              }
+              const fetched = await fetchAsDataURI(absHref);
+              const mimeType = mimeFromDataURI(fetched) || mimeFromURL(absHref) || mimeFromURL(label) || "application/octet-stream";
+              media = {
+                id: "media-" + msgIndex + "-" + mediaIndex,
+                filename: ensureFilename(label || fileNameFromURL(absHref), mimeType, "attachment-file-" + (mediaIndex + 1)),
+                mimeType,
+                url: fetched ? "" : absHref,
+                dataUri: fetched || ""
+              };
+            } else {
+              // Button triggers programmatic download — intercept URL.createObjectURL
+              let capturedBlobBytes = null;
+              let capturedBlobMime = "";
+              const origCreateObjectURL = URL.createObjectURL;
+              let blobResolve;
+              const blobReady = new Promise((resolve) => { blobResolve = resolve; });
+              URL.createObjectURL = function (blob) {
+                const url = origCreateObjectURL.call(URL, blob);
+                if (blob && typeof blob.arrayBuffer === "function") {
+                  blob.arrayBuffer().then((ab) => {
+                    capturedBlobMime = blob.type || "";
+                    capturedBlobBytes = new Uint8Array(ab);
+                    blobResolve();
+                  }).catch(() => blobResolve());
+                } else {
+                  blobResolve();
+                }
+                return url;
+              };
+              try { downloadBtn.click(); } catch (_) {}
+              await Promise.race([blobReady, wait(3000)]);
+              URL.createObjectURL = origCreateObjectURL;
+              if (capturedBlobBytes && capturedBlobBytes.length > 0) {
+                const mimeType = capturedBlobMime || mimeFromURL(label) || "application/octet-stream";
+                if (captureDiagnostics) {
+                  attachmentEvents.push({
+                    msgIndex, mediaIndex, source: "viewer-download-button-blob",
+                    mimeType, byteLength: capturedBlobBytes.length,
+                    ts: new Date().toISOString()
+                  });
+                }
+                media = {
+                  id: "media-" + msgIndex + "-" + mediaIndex,
+                  filename: ensureFilename(label, mimeType, "attachment-file-" + (mediaIndex + 1)),
+                  mimeType,
+                  dataUri: "data:" + mimeType + ";base64," + base64FromBytes(capturedBlobBytes)
+                };
+              }
+            }
+          }
+        }
+        // 5. Last resort inside viewer: any download link
+        if (!media) {
+          const dlHref = asAbsURL(
             (viewer.querySelector("a[href][download]") && viewer.querySelector("a[href][download]").getAttribute("href")) ||
-            (viewer.querySelector("a[href*='googleusercontent'], a[href*='drive'], a[href*='docs.google.com']") && viewer.querySelector("a[href*='googleusercontent'], a[href*='drive'], a[href*='docs.google.com']").getAttribute("href")) ||
+            (viewer.querySelector("a[href*='googleusercontent'], a[href*='drive'], a[href*='docs.google.com']") &&
+              viewer.querySelector("a[href*='googleusercontent'], a[href*='drive'], a[href*='docs.google.com']").getAttribute("href")) ||
             fallbackHref
           );
-          if (downloadHref) {
+          if (dlHref) {
             if (captureDiagnostics) {
               attachmentEvents.push({
-                msgIndex,
-                mediaIndex,
-                source: "viewer-download-link",
-                href: downloadHref,
-                ts: new Date().toISOString()
+                msgIndex, mediaIndex, source: "viewer-download-link",
+                href: dlHref, ts: new Date().toISOString()
               });
             }
-            const fetched = await fetchAsDataURI(downloadHref);
-            const mimeType = mimeFromDataURI(fetched) || mimeFromURL(downloadHref) || "application/octet-stream";
+            const fetched = await fetchAsDataURI(dlHref);
+            const mimeType = mimeFromDataURI(fetched) || mimeFromURL(dlHref) || "application/octet-stream";
             media = {
               id: "media-" + msgIndex + "-" + mediaIndex,
-              filename: ensureFilename(label || fileNameFromURL(downloadHref), mimeType, "attachment-file-" + (mediaIndex + 1)),
+              filename: ensureFilename(label || fileNameFromURL(dlHref), mimeType, "attachment-file-" + (mediaIndex + 1)),
               mimeType,
-              url: fetched ? "" : downloadHref,
+              url: fetched ? "" : dlHref,
               dataUri: fetched || ""
             };
           }
         }
       }
+      // 6. Absolute fallback: fetch from chip href directly
       if (!media && fallbackHref) {
         if (captureDiagnostics) {
           attachmentEvents.push({
-            msgIndex,
-            mediaIndex,
-            source: "fallback-href",
-            href: fallbackHref,
-            ts: new Date().toISOString()
+            msgIndex, mediaIndex, source: "fallback-href",
+            href: fallbackHref, ts: new Date().toISOString()
           });
         }
         const fetched = await fetchAsDataURI(fallbackHref);
