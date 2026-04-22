@@ -26,6 +26,7 @@ func main() {
 		attachActive  = flag.Bool("attach-active-session", true, "attach to active logged-in browser session (gemini collector)")
 		includeMeta   = flag.Bool("include-metadata", true, "include model/system metadata when discoverable")
 		mediaMode     = flag.String("media-mode", "files", "media export mode: files (maps to media/*)")
+		captureDiag   = flag.Bool("capture-diagnostics", false, "capture detailed Gemini page diagnostics for offline analysis")
 		debugURL      = flag.String("remote-debugging-url", "http://127.0.0.1:9222", "Chrome/Edge remote debugging endpoint for collector=gemini")
 		timeout       = flag.Duration("timeout", 20*time.Second, "network timeout per request")
 		retries       = flag.Int("retries", 3, "download retry attempts")
@@ -69,6 +70,7 @@ func main() {
 		SingleConversationRun:   true,
 		IncludeMetadata:         *includeMeta,
 		MediaMode:               *mediaMode,
+		CaptureDiagnostics:      *captureDiag,
 	}
 
 	m, err := engine.Run(context.Background(), cfg)

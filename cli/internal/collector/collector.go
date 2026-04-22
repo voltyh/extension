@@ -12,6 +12,8 @@ type Options struct {
 	SingleConversationRun bool
 	IncludeMetadata       bool
 	MediaMode             string
+	CaptureDiagnostics    bool
+	DiagnosticsDir        string
 }
 
 type Collector interface {

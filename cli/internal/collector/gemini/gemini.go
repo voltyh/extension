@@ -1,6 +1,7 @@
 package gemini
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -8,6 +9,8 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/chromedp/cdproto/runtime"
@@ -32,6 +35,11 @@ type devToolsVersion struct {
 type devToolsTarget struct {
 	Type string `json:"type"`
 	URL  string `json:"url"`
+}
+
+type extractedPayload struct {
+	Conversation model.Conversation `json:"conversation"`
+	Diagnostics  json.RawMessage    `json:"diagnostics,omitempty"`
 }
 
 func (c *Collector) Name() string { return "gemini" }
@@ -82,7 +90,7 @@ func (c *Collector) Collect(ctx context.Context, opts collector.Options) (*model
 
 	var payload string
 	actions = append(actions, chromedp.Evaluate(
-		extractConversationScript(opts.IncludeMetadata),
+		extractConversationScript(opts.IncludeMetadata, opts.CaptureDiagnostics),
 		&payload,
 		func(p *runtime.EvaluateParams) *runtime.EvaluateParams {
 			return p.WithAwaitPromise(true)
@@ -96,7 +104,10 @@ func (c *Collector) Collect(ctx context.Context, opts collector.Options) (*model
 	}
 
 	var conv model.Conversation
-	if err := json.Unmarshal([]byte(payload), &conv); err != nil {
+	var extracted extractedPayload
+	if err := json.Unmarshal([]byte(payload), &extracted); err == nil && len(extracted.Conversation.Messages) > 0 {
+		conv = extracted.Conversation
+	} else if err := json.Unmarshal([]byte(payload), &conv); err != nil {
 		return nil, fmt.Errorf("decode extracted conversation: %w", err)
 	}
 	if opts.ConversationID != "" {
@@ -105,7 +116,76 @@ func (c *Collector) Collect(ctx context.Context, opts collector.Options) (*model
 	if len(conv.Messages) == 0 {
 		return nil, errors.New("no messages found; open a Gemini chat tab in the remote-debug browser and ensure it is fully loaded")
 	}
+	if opts.CaptureDiagnostics && strings.TrimSpace(opts.DiagnosticsDir) != "" && len(extracted.Diagnostics) > 0 {
+		if err := writeDiagnosticsFiles(opts.DiagnosticsDir, extracted.Diagnostics); err != nil {
+			return nil, fmt.Errorf("write diagnostics: %w", err)
+		}
+	}
 	return &conv, nil
+}
+
+func writeDiagnosticsFiles(dir string, raw json.RawMessage) error {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	if err := writeRawJSON(filepath.Join(dir, "diagnostics.full.json"), raw); err != nil {
+		return err
+	}
+	var sections map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &sections); err != nil {
+		return nil
+	}
+	keys := make([]string, 0, len(sections))
+	for k := range sections {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		section := sections[key]
+		if key == "domHTML" {
+			var html string
+			if err := json.Unmarshal(section, &html); err == nil {
+				if err := os.WriteFile(filepath.Join(dir, "dom.snapshot.html"), []byte(html), 0o644); err != nil {
+					return err
+				}
+				continue
+			}
+		}
+		name := sanitizeDiagKey(key) + ".json"
+		if err := writeRawJSON(filepath.Join(dir, name), section); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func writeRawJSON(path string, raw json.RawMessage) error {
+	var pretty bytes.Buffer
+	if err := json.Indent(&pretty, raw, "", "  "); err != nil {
+		pretty.Write(raw)
+	}
+	return os.WriteFile(path, pretty.Bytes(), 0o644)
+}
+
+func sanitizeDiagKey(in string) string {
+	in = strings.TrimSpace(in)
+	if in == "" {
+		return "diagnostic"
+	}
+	var b strings.Builder
+	for _, r := range in {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+			b.WriteRune(r)
+		default:
+			b.WriteByte('_')
+		}
+	}
+	out := strings.Trim(b.String(), "_")
+	if out == "" {
+		return "diagnostic"
+	}
+	return out
 }
 
 func resolveDevToolsEndpoints(ctx context.Context, raw string) (string, string, error) {
@@ -191,17 +271,62 @@ func selectGeminiTarget(targets []devToolsTarget, conversationID string) (*devTo
 	return &geminiPages[0], nil
 }
 
-func extractConversationScript(includeMetadata bool) string {
+func extractConversationScript(includeMetadata, captureDiagnostics bool) string {
 	flagLiteral := "false"
 	if includeMetadata {
 		flagLiteral = "true"
 	}
+	diagnosticsLiteral := "false"
+	if captureDiagnostics {
+		diagnosticsLiteral = "true"
+	}
 	return `(async function() {
   const includeMetadata = ` + flagLiteral + `;
+  const captureDiagnostics = ` + diagnosticsLiteral + `;
   const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  const runStartedAt = new Date().toISOString();
+  const networkEvents = [];
+  const attachmentEvents = [];
+  const pushNetwork = (event) => {
+    if (!captureDiagnostics) return;
+    networkEvents.push(event);
+    if (networkEvents.length > 2000) networkEvents.shift();
+  };
   const asAbsURL = (s) => {
     try { return new URL(s, location.href).href; } catch (_) { return s || ""; }
   };
+  const originalFetch = window.fetch ? window.fetch.bind(window) : null;
+  if (captureDiagnostics && originalFetch) {
+    window.fetch = async (...args) => {
+      const requestedURL = asAbsURL((args && args[0] && args[0].url) ? args[0].url : args[0]);
+      const startedAt = Date.now();
+      try {
+        const resp = await originalFetch(...args);
+        pushNetwork({
+          type: "fetch",
+          url: requestedURL,
+          method: (args && args[1] && args[1].method) || "GET",
+          ok: !!resp.ok,
+          status: resp.status,
+          durationMs: Date.now() - startedAt,
+          ts: new Date().toISOString()
+        });
+        return resp;
+      } catch (err) {
+        pushNetwork({
+          type: "fetch",
+          url: requestedURL,
+          method: (args && args[1] && args[1].method) || "GET",
+          ok: false,
+          status: 0,
+          durationMs: Date.now() - startedAt,
+          error: String(err || ""),
+          ts: new Date().toISOString()
+        });
+        throw err;
+      }
+    };
+  }
   const filePreviewSelector = 'user-query-file-preview, file-preview, mat-chip, .attachment-chip, [data-test-id="file-preview"], [data-test-id="uploaded-file"]';
   const fileNameFromURL = (u) => {
     try {
@@ -473,6 +598,15 @@ func extractConversationScript(includeMetadata bool) string {
             fallbackHref
           );
           if (downloadHref) {
+            if (captureDiagnostics) {
+              attachmentEvents.push({
+                msgIndex,
+                mediaIndex,
+                source: "viewer-download-link",
+                href: downloadHref,
+                ts: new Date().toISOString()
+              });
+            }
             const fetched = await fetchAsDataURI(downloadHref);
             const mimeType = mimeFromDataURI(fetched) || mimeFromURL(downloadHref) || "application/octet-stream";
             media = {
@@ -486,6 +620,15 @@ func extractConversationScript(includeMetadata bool) string {
         }
       }
       if (!media && fallbackHref) {
+        if (captureDiagnostics) {
+          attachmentEvents.push({
+            msgIndex,
+            mediaIndex,
+            source: "fallback-href",
+            href: fallbackHref,
+            ts: new Date().toISOString()
+          });
+        }
         const fetched = await fetchAsDataURI(fallbackHref);
         const mimeType = mimeFromDataURI(fetched) || mimeFromURL(fallbackHref) || "application/octet-stream";
         media = {
@@ -596,10 +739,72 @@ func extractConversationScript(includeMetadata bool) string {
     const lang = document.documentElement?.lang || "";
     if (lang) title = title + " [" + lang + "]";
   }
-  return JSON.stringify({
+  const conversation = {
     id: maybeConvID,
     title,
     messages
-  });
+  };
+  const diagnostics = captureDiagnostics ? (() => {
+    const selectAll = (selector) => Array.from(document.querySelectorAll(selector));
+    const nodeSummary = {
+      messageNodes: selectAll("user-query, model-response, [data-message-author-role], [data-author], .user-query, .model-response").length,
+      filePreviewNodes: selectAll(filePreviewSelector).length,
+      imageNodes: selectAll("img").length,
+      linkNodes: selectAll("a[href]").length,
+      buttonNodes: selectAll("button, [role='button']").length
+    };
+    const tagCounts = {};
+    Array.from(document.querySelectorAll("*")).forEach((el) => {
+      const tag = (el.tagName || "").toLowerCase();
+      if (!tag) return;
+      tagCounts[tag] = (tagCounts[tag] || 0) + 1;
+    });
+    const topTagCounts = Object.entries(tagCounts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 80)
+      .map(([tag, count]) => ({ tag, count }));
+    const resources = (performance.getEntriesByType("resource") || []).slice(-1500).map((r) => ({
+      name: r.name || "",
+      initiatorType: r.initiatorType || "",
+      transferSize: r.transferSize || 0,
+      duration: r.duration || 0,
+      startTime: r.startTime || 0
+    }));
+    const nav = (performance.getEntriesByType("navigation") || [])[0];
+    const loadSummary = nav ? {
+      type: nav.type || "",
+      domComplete: nav.domComplete || 0,
+      domContentLoaded: nav.domContentLoadedEventEnd || 0,
+      loadEventEnd: nav.loadEventEnd || 0,
+      responseEnd: nav.responseEnd || 0
+    } : {};
+    const attachmentCandidates = selectAll(filePreviewSelector).slice(0, 500).map((el, idx) => ({
+      index: idx,
+      text: (el.innerText || el.textContent || "").trim().slice(0, 400),
+      href: asAbsURL(el.getAttribute("href") || (el.querySelector("a[href]") ? el.querySelector("a[href]").getAttribute("href") : "")),
+      ariaLabel: el.getAttribute("aria-label") || "",
+      tooltip: el.getAttribute("mattooltip") || ""
+    }));
+    return {
+      runStartedAt,
+      runFinishedAt: new Date().toISOString(),
+      page: {
+        url: location.href,
+        title: document.title || "",
+        userAgent: navigator.userAgent || "",
+        readyState: document.readyState || "",
+        lang: document.documentElement?.lang || ""
+      },
+      loadSummary,
+      nodeSummary,
+      topTagCounts,
+      resources,
+      networkEvents,
+      attachmentEvents,
+      attachmentCandidates,
+      domHTML: document.documentElement ? document.documentElement.outerHTML : ""
+    };
+  })() : null;
+  return JSON.stringify({ conversation, diagnostics });
 })();`
 }

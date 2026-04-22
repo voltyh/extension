@@ -38,6 +38,7 @@ type Config struct {
 	SingleConversationRun   bool
 	IncludeMetadata         bool
 	MediaMode               string
+	CaptureDiagnostics      bool
 	DownloadTimeout         time.Duration
 	DownloadRetries         int
 	DownloadConcurrency     int
@@ -82,24 +83,31 @@ func Run(ctx context.Context, cfg Config) (*model.Manifest, error) {
 		StartedAt:   started,
 	}
 
+	workDir, cleanup, err := resolveWorkDir(cfg.WorkDir, cfg.Resume)
+	if err != nil {
+		return nil, err
+	}
+	defer cleanup()
+
+	diagDir := ""
+	if cfg.CaptureDiagnostics {
+		diagDir = filepath.Join(workDir, "diagnostics")
+	}
+
 	conv, err := cfg.Collector.Collect(ctx, collector.Options{
 		ConversationID:        cfg.CollectorConversationID,
 		AttachActiveSession:   cfg.AttachActiveSession,
 		SingleConversationRun: cfg.SingleConversationRun,
 		IncludeMetadata:       cfg.IncludeMetadata,
 		MediaMode:             cfg.MediaMode,
+		CaptureDiagnostics:    cfg.CaptureDiagnostics,
+		DiagnosticsDir:        diagDir,
 	})
 	if err != nil {
 		return nil, err
 	}
 	normalizeConversation(conv)
 	manifest.Failures = append(manifest.Failures, validateConversation(conv)...)
-
-	workDir, cleanup, err := resolveWorkDir(cfg.WorkDir, cfg.Resume)
-	if err != nil {
-		return nil, err
-	}
-	defer cleanup()
 
 	if err := os.MkdirAll(filepath.Join(workDir, "media"), 0o755); err != nil {
 		return nil, err
