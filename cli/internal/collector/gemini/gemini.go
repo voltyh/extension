@@ -73,30 +73,35 @@ func (c *Collector) Collect(ctx context.Context, opts collector.Options) (*model
 		return nil, err
 	}
 
+	targetURL := selected.URL
+	if opts.ConversationID != "" {
+		targetURL = defaultGeminiHome + "/" + opts.ConversationID
+	}
+
+	// Full diagnostics path: CDP-level capture + in-page interceptors + reload.
+	if opts.CaptureDiagnostics {
+		return c.collectWithFullDiagnostics(ctx, opts, wsURL, targetURL)
+	}
+
+	// Fast path: no diagnostics requested.
 	allocCtx, cancelAllocator := chromedp.NewRemoteAllocator(ctx, wsURL)
 	defer cancelAllocator()
 
 	browserCtx, cancelBrowser := chromedp.NewContext(allocCtx)
 	defer cancelBrowser()
 
-	targetURL := selected.URL
-	if opts.ConversationID != "" {
-		targetURL = defaultGeminiHome + "/" + opts.ConversationID
-	}
-	actions := []chromedp.Action{
+	var payload string
+	if err := chromedp.Run(browserCtx,
 		chromedp.Navigate(targetURL),
 		chromedp.WaitReady("body", chromedp.ByQuery),
-	}
-
-	var payload string
-	actions = append(actions, chromedp.Evaluate(
-		extractConversationScript(opts.IncludeMetadata, opts.CaptureDiagnostics),
-		&payload,
-		func(p *runtime.EvaluateParams) *runtime.EvaluateParams {
-			return p.WithAwaitPromise(true)
-		},
-	))
-	if err := chromedp.Run(browserCtx, actions...); err != nil {
+		chromedp.Evaluate(
+			extractConversationScript(opts.IncludeMetadata, false),
+			&payload,
+			func(p *runtime.EvaluateParams) *runtime.EvaluateParams {
+				return p.WithAwaitPromise(true)
+			},
+		),
+	); err != nil {
 		return nil, fmt.Errorf("extract from browser: %w", err)
 	}
 	if strings.TrimSpace(payload) == "" {
@@ -115,11 +120,6 @@ func (c *Collector) Collect(ctx context.Context, opts collector.Options) (*model
 	}
 	if len(conv.Messages) == 0 {
 		return nil, errors.New("no messages found; open a Gemini chat tab in the remote-debug browser and ensure it is fully loaded")
-	}
-	if opts.CaptureDiagnostics && strings.TrimSpace(opts.DiagnosticsDir) != "" && len(extracted.Diagnostics) > 0 {
-		if err := writeDiagnosticsFiles(opts.DiagnosticsDir, extracted.Diagnostics); err != nil {
-			return nil, fmt.Errorf("write diagnostics: %w", err)
-		}
 	}
 	return &conv, nil
 }
